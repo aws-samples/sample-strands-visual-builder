@@ -289,7 +289,7 @@ npm run build        # Optimized build
 3. Test locally with the built-in Python executor
 4. Deploy to AgentCore for testing and evaluation
 
-## 🛠️ Configuration
+## Configuration
 
 ### Backend Configuration (`.env`)
 
