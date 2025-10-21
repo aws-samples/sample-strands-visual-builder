@@ -1,0 +1,100 @@
+/* Override Cloudscape AppLayout content width constraints */
+.awsui-app-layout__content {
+  max-width: none !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.awsui-app-layout__content-area {
+  max-width: none !important;
+  width: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* Ensure the main content container uses full width */
+.awsui-app-layout__main {
+  max-width: none !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Override any container width constraints */
+.awsui-app-layout [class*="content"] {
+  max-width: none !important;
+  width: 100% !important;
+}
+
+/* Target the table container specifically */
+.awsui-table__container {
+  max-width: none !important;
+  width: 100% !important;
+}
+
+.awsui-table__wrapper {
+  max-width: none !important;
+  width: 100% !important;
+}
+
+.awsui-table {
+  max-width: none !important;
+  width: 100% !important;
+}
+
+/* Override SpaceBetween component width constraints */
+.awsui-space-between {
+  max-width: none !important;
+  width: 100% !important;
+}
+
+/* Force full width on all direct children */
+#app > * {
+  max-width: none !important;
+  width: 100% !important;
+}
+
+/* Override any grid or flex container constraints */
+.awsui-app-layout__content > * {
+  max-width: none !important;
+  width: 100% !important;
+}
+
+/* Specific override for the news dashboard container */
+[data-testid="news-dashboard"] {
+  max-width: none !important;
+  width: 100% !important;
+}
+
+/* Force all divs within content to use full width */
+.awsui-app-layout__content div {
+  max-width: none !important;
+}
+
+/* Chat page specific styles to prevent scrolling */
+.chat-page-container {
+  height: calc(100vh - 120px) !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Ensure body doesn't scroll when on chat page */
+body.chat-page {
+  overflow: hidden !important;
+  height: 100vh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Prevent any scrolling on the main app layout when in chat */
+.chat-page .awsui-app-layout {
+  height: 100vh !important;
+  overflow: hidden !important;
+}
+
+.chat-page .awsui-app-layout__content {
+  overflow: hidden !important;
+  height: calc(100vh - 60px) !important;
+}

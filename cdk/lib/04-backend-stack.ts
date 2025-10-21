@@ -1,0 +1,521 @@
+import * as cdk from 'aws-cdk-lib';
+
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as ecr from 'aws-cdk-lib/aws-ecr';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
+import * as ecs from 'aws-cdk-lib/aws-ecs';
+import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import * as logs from 'aws-cdk-lib/aws-logs';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import { Construct } from 'constructs';
+
+export interface BackendStackProps extends cdk.StackProps {
+  parameterBasePath: string;
+  projectsTable?: dynamodb.ITable;
+  userSettingsTable?: dynamodb.ITable;
+  tempCodeBucket?: s3.IBucket;
+  backendEcrRepository?: ecr.IRepository;
+  userPoolArn?: string;
+  vpc?: ec2.IVpc;
+}
+
+export class BackendStack extends cdk.Stack {
+
+
+  // ECS resources
+  public readonly ecsCluster?: ecs.Cluster;
+  public readonly fargateService?: ecs.FargateService;
+  public readonly applicationLoadBalancer?: elbv2.ApplicationLoadBalancer;
+  public readonly ecsTaskRole?: iam.Role;
+
+  constructor(scope: Construct, id: string, props: BackendStackProps) {
+    super(scope, id, props);
+
+    const { parameterBasePath, projectsTable, userSettingsTable, tempCodeBucket, backendEcrRepository, userPoolArn, vpc } = props;
+
+    // Get VPC information - use passed VPC or fallback to SSM lookup
+    let resolvedVpc: ec2.IVpc;
+    if (vpc) {
+      resolvedVpc = vpc;
+    } else {
+      // Fallback to SSM lookup for standalone deployment
+      const vpcId = ssm.StringParameter.valueFromLookup(this, `${parameterBasePath}/vpc/vpc-id`);
+      const privateSubnetIds = ssm.StringParameter.valueFromLookup(this, `${parameterBasePath}/vpc/private-subnet-ids`);
+      resolvedVpc = ec2.Vpc.fromLookup(this, 'VPC', { vpcId });
+    }
+
+
+    // Get storage information
+    const projectsTableName = projectsTable?.tableName ||
+      ssm.StringParameter.valueFromLookup(this, `${parameterBasePath}/dynamodb/table-name`);
+    const userSettingsTableName = userSettingsTable?.tableName ||
+      ssm.StringParameter.valueFromLookup(this, `${parameterBasePath}/dynamodb/user-settings-table-name`);
+    const tempCodeBucketName = tempCodeBucket?.bucketName ||
+      ssm.StringParameter.valueFromLookup(this, `${parameterBasePath}/s3/temp-code-bucket`);
+
+    // Get auth information - only lookup from SSM if not provided directly
+    const resolvedUserPoolArn = userPoolArn ||
+      ssm.StringParameter.valueFromLookup(this, `${parameterBasePath}/cognito/user-pool-arn`);
+
+    // ECR repository - use passed repository or fallback to lookup
+    const ecrRepository = backendEcrRepository ||
+      ecr.Repository.fromRepositoryName(this, 'BackendRepository', 'strands-visual-builder-backend');
+
+
+
+    // =============================================================================
+    // ECS/FARGATE + ALB INFRASTRUCTURE
+    // =============================================================================
+
+    // Use the resolved VPC from above
+
+    // ALB Security Group
+    const albSecurityGroup = new ec2.SecurityGroup(this, 'ALBSecurityGroup', {
+      vpc: resolvedVpc,
+      securityGroupName: 'strands-alb-sg',
+      description: 'Security group for Application Load Balancer',
+      allowAllOutbound: false
+    });
+
+    albSecurityGroup.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'Allow HTTPS from internet');
+    albSecurityGroup.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), 'Allow HTTP for redirect');
+
+    // ECS Security Group
+    const ecsSecurityGroup = new ec2.SecurityGroup(this, 'ECSSecurityGroup', {
+      vpc: resolvedVpc,
+      securityGroupName: 'strands-ecs-sg',
+      description: 'Security group for ECS backend service',
+      allowAllOutbound: true
+    });
+
+    ecsSecurityGroup.addIngressRule(albSecurityGroup, ec2.Port.tcp(8080), 'Allow traffic from ALB');
+
+    // ECS Task Execution Role
+    const ecsExecutionRole = new iam.Role(this, 'EcsExecutionRole', {
+      roleName: 'strands-ecs-execution-role',
+      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+      managedPolicies: [iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AmazonECSTaskExecutionRolePolicy')]
+    });
+
+    ecrRepository.grantPull(ecsExecutionRole);
+
+    // ECS Task Role (same permissions as App Runner)
+    this.ecsTaskRole = new iam.Role(this, 'EcsTaskRole', {
+      roleName: 'strands-ecs-task-role',
+      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+      description: 'Task role for ECS backend service',
+    });
+
+    // Copy all the same permissions as App Runner role
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['ssm:GetParameter', 'ssm:GetParameters', 'ssm:GetParametersByPath'],
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter${parameterBasePath}`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter${parameterBasePath}/*`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/strands`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/strands/*`
+      ],
+    }));
+
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:Query', 'dynamodb:Scan'],
+      resources: [
+        `arn:aws:dynamodb:${this.region}:${this.account}:table/${projectsTableName}`,
+        `arn:aws:dynamodb:${this.region}:${this.account}:table/${projectsTableName}/index/*`,
+        `arn:aws:dynamodb:${this.region}:${this.account}:table/${userSettingsTableName}`,
+        `arn:aws:dynamodb:${this.region}:${this.account}:table/${userSettingsTableName}/index/*`,
+      ],
+    }));
+
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject', 's3:ListBucket'],
+      resources: [`arn:aws:s3:::${tempCodeBucketName}`, `arn:aws:s3:::${tempCodeBucketName}/*`],
+    }));
+
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['cognito-idp:AdminGetUser', 'cognito-idp:AdminListGroupsForUser', 'cognito-idp:GetUser', 'cognito-idp:ListUsers'],
+      resources: [resolvedUserPoolArn],
+    }));
+
+    // Bedrock model access - scoped to region, all models
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'bedrock:ListFoundationModels',
+        'bedrock:GetFoundationModel',
+        'bedrock:InvokeModel',
+        'bedrock:InvokeModelWithResponseStream'
+      ],
+      resources: ['*'], // ListFoundationModels requires wildcard resource
+    }));
+
+    // AgentCore Runtime permissions - resource-restricted (runtime operations)
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'bedrock-agentcore:InvokeAgentRuntime',
+        'bedrock-agentcore:GetAgentRuntime',
+        'bedrock-agentcore:UpdateAgentRuntime',
+        'bedrock-agentcore:DeleteAgentRuntime',
+      ],
+      resources: [
+        `arn:aws:bedrock-agentcore:*:${this.account}:runtime/*_svbui_a7f3-*`,
+        `arn:aws:bedrock-agentcore:*:${this.account}:runtime/expert_agent_svbui_a7f3-*`,
+        `arn:aws:bedrock-agentcore:*:${this.account}:runtime/*/runtime-endpoint/*`
+      ],
+    }));
+
+    // AgentCore Code Interpreter permissions - resource-restricted
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'bedrock-agentcore:InvokeCodeInterpreter',
+        'bedrock-agentcore:StartCodeInterpreterSession',
+        'bedrock-agentcore:StopCodeInterpreterSession',
+        'bedrock-agentcore:GetCodeInterpreterSession',
+      ],
+      resources: [
+        `arn:aws:bedrock-agentcore:*:${this.account}:code-interpreter-custom/strands_visual_builder_*`,
+        `arn:aws:bedrock-agentcore:*:aws:code-interpreter/*`  // AWS managed interpreters
+      ],
+    }));
+
+    // AgentCore List/Create operations - require wildcard resources
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'bedrock-agentcore:ListAgentRuntimes',
+        'bedrock-agentcore:CreateAgentRuntime',
+        'bedrock-agentcore:ListCodeInterpreters',
+      ],
+      resources: ['*'],
+    }));
+
+    // AgentCore Control Plane permissions - separate policy for control plane
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'bedrock-agentcore-control:CreateAgentRuntime',
+        'bedrock-agentcore-control:UpdateAgentRuntime',
+        'bedrock-agentcore-control:GetAgentRuntime',
+        'bedrock-agentcore-control:ListAgentRuntimes',
+        'bedrock-agentcore-control:DeleteAgentRuntime',
+      ],
+      resources: ['*'],  // Control plane operations typically require wildcard
+    }));
+
+    // AgentCore Memory permissions - separate resource pattern for memory
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        // AgentCore Memory actions (runtime, without -control)
+        'bedrock-agentcore:ListMemories',
+        'bedrock-agentcore:CreateMemory',
+        'bedrock-agentcore:GetMemory',
+        'bedrock-agentcore:UpdateMemory',
+        // AgentCore Memory Control Plane actions
+        'bedrock-agentcore-control:ListMemories',
+        'bedrock-agentcore-control:CreateMemory',
+        'bedrock-agentcore-control:GetMemory',
+        'bedrock-agentcore-control:UpdateMemory',
+      ],
+      resources: [`arn:aws:bedrock-agentcore:*:${this.account}:memory/*`],
+    }));
+
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents', 'logs:DescribeLogGroups', 'logs:DescribeLogStreams'],
+      resources: [`arn:aws:logs:${this.region}:${this.account}:log-group:/aws/ecs/*`],
+    }));
+
+    // Attach BedrockAgentCoreFullAccess managed policy (the key fix for AgentCore deployment)
+    this.ecsTaskRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('BedrockAgentCoreFullAccess'));
+
+
+
+
+
+    // Additional starter toolkit permissions from AWS documentation
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'iam:PassRole'
+      ],
+      resources: [
+        `arn:aws:iam::*:role/AmazonBedrockAgentCore*`,
+        `arn:aws:iam::*:role/service-role/AmazonBedrockAgentCore*`
+      ],
+    }));
+
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'logs:GetLogEvents',
+        'logs:DescribeLogGroups',
+        'logs:DescribeLogStreams'
+      ],
+      resources: [
+        `arn:aws:logs:*:*:log-group:/aws/bedrock-agentcore/*`,
+        `arn:aws:logs:*:*:log-group:/aws/codebuild/*`
+      ],
+    }));
+
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'ecr:GetRepositoryPolicy',
+        'ecr:ListImages',
+        'ecr:TagResource'
+      ],
+      resources: [`arn:aws:ecr:*:*:repository/bedrock-agentcore-*`],
+    }));
+
+    // Deny delete operations for safety
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.DENY,
+      actions: [
+        'bedrock-agentcore:DeleteAgentRuntime',
+        'bedrock-agentcore:DeleteMemory',
+        'bedrock-agentcore:DeleteCodeInterpreter',
+        'bedrock-agentcore:DeleteEvent',
+        'bedrock-agentcore:DeleteMemoryRecord',
+        'bedrock-agentcore-control:DeleteAgentRuntime',
+        'bedrock-agentcore-control:DeleteMemory',
+        'bedrock-agentcore-control:DeleteCodeInterpreter'
+      ],
+      resources: ['*'],
+    }));
+
+    // ECR permissions for AgentCore deployment - wildcard regions for cross-region support
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'ecr:CreateRepository',
+        'ecr:DescribeRepositories',
+        'ecr:BatchCheckLayerAvailability',
+        'ecr:GetDownloadUrlForLayer',
+        'ecr:BatchGetImage',
+        'ecr:PutImage',
+        'ecr:InitiateLayerUpload',
+        'ecr:UploadLayerPart',
+        'ecr:CompleteLayerUpload'
+      ],
+      resources: [`arn:aws:ecr:*:${this.account}:repository/*`],
+    }));
+
+    // ECR GetAuthorizationToken requires wildcard resource (AWS service requirement)
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['ecr:GetAuthorizationToken'],
+      resources: ['*'],
+    }));
+
+    // CodeBuild permissions for AgentCore deployment - wildcard regions for cross-region support
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'codebuild:CreateProject',
+        'codebuild:UpdateProject',
+        'codebuild:StartBuild',
+        'codebuild:BatchGetBuilds',
+        'codebuild:BatchGetProjects'
+      ],
+      resources: [`arn:aws:codebuild:*:${this.account}:project/bedrock-agentcore-*`],
+    }));
+
+    // CodeBuild ListProjects requires wildcard resource (AWS service requirement)
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['codebuild:ListProjects'],
+      resources: ['*'],
+    }));
+
+    // IAM permissions for AgentCore deployment (role management)
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'iam:CreateRole',
+        'iam:DeleteRole',
+        'iam:GetRole',
+        'iam:PutRolePolicy',
+        'iam:DeleteRolePolicy',
+        'iam:AttachRolePolicy',
+        'iam:DetachRolePolicy',
+        'iam:TagRole',
+        'iam:ListRolePolicies',
+        'iam:ListAttachedRolePolicies',
+        'iam:PassRole'
+      ],
+      resources: [
+        `arn:aws:iam::${this.account}:role/*BedrockAgentCore*`,
+        `arn:aws:iam::${this.account}:role/service-role/*BedrockAgentCore*`,
+        `arn:aws:iam::${this.account}:role/AmazonBedrockAgentCore*`,
+        `arn:aws:iam::${this.account}:role/service-role/AmazonBedrockAgentCore*`
+      ],
+    }));
+
+    // S3 permissions for AgentCore deployment artifacts - wildcard regions for cross-region support
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        's3:GetObject',
+        's3:PutObject',
+        's3:ListBucket',
+        's3:CreateBucket',
+        's3:PutLifecycleConfiguration'
+      ],
+      resources: [
+        'arn:aws:s3:::bedrock-agentcore-*',
+        'arn:aws:s3:::bedrock-agentcore-*/*'
+      ],
+    }));
+
+    // Application Load Balancer
+    this.applicationLoadBalancer = new elbv2.ApplicationLoadBalancer(this, 'BackendALB', {
+      vpc: resolvedVpc,
+      internetFacing: true,
+      loadBalancerName: 'strands-backend-alb',
+      securityGroup: albSecurityGroup,
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC }
+    });
+
+    // Configure ALB timeout for long-running requests (30 minutes)
+    this.applicationLoadBalancer.setAttribute('idle_timeout.timeout_seconds', '1800');
+
+    // Target Group
+    const targetGroup = new elbv2.ApplicationTargetGroup(this, 'BackendTargetGroup', {
+      vpc: resolvedVpc,
+      port: 8080,
+      protocol: elbv2.ApplicationProtocol.HTTP,
+      targetType: elbv2.TargetType.IP,
+      healthCheck: {
+        enabled: true,
+        path: '/ping',
+        interval: cdk.Duration.seconds(120),       // Every 120 seconds
+        timeout: cdk.Duration.seconds(60),         // Wait 60 seconds - must be less than interval
+        healthyThresholdCount: 2,                  // 2 successes to mark healthy
+        unhealthyThresholdCount: 10,               // 10 failures to mark unhealthy (vs 5) - MAXIMUM
+        protocol: elbv2.Protocol.HTTP
+      },
+      deregistrationDelay: cdk.Duration.seconds(900)
+    });
+
+    // ECS Cluster
+    this.ecsCluster = new ecs.Cluster(this, 'BackendCluster', {
+      vpc: resolvedVpc,
+      clusterName: 'strands-backend-cluster',
+      enableFargateCapacityProviders: true
+    });
+
+    // Task Definition
+    const taskDefinition = new ecs.FargateTaskDefinition(this, 'BackendTaskDef', {
+      memoryLimitMiB: 2048,
+      cpu: 1024,
+      executionRole: ecsExecutionRole,
+      taskRole: this.ecsTaskRole
+    });
+
+    // Container
+    taskDefinition.addContainer('backend', {
+      image: ecs.ContainerImage.fromEcrRepository(ecrRepository, 'latest'),
+      portMappings: [{ containerPort: 8080, protocol: ecs.Protocol.TCP }],
+      environment: {
+        AWS_REGION: this.region,
+        PARAMETER_BASE_PATH: parameterBasePath,
+        PORT: '8080'
+      },
+      logging: ecs.LogDrivers.awsLogs({
+        streamPrefix: 'strands-backend',
+        logGroup: new logs.LogGroup(this, 'BackendLogGroup', {
+          logGroupName: '/aws/ecs/strands-backend',
+          retention: logs.RetentionDays.ONE_WEEK,
+          removalPolicy: cdk.RemovalPolicy.DESTROY
+        })
+      }),
+      healthCheck: {
+        command: ['CMD-SHELL', 'curl -f http://localhost:8080/ping || exit 1'],
+        interval: cdk.Duration.seconds(30),
+        timeout: cdk.Duration.seconds(5),
+        retries: 3,
+        startPeriod: cdk.Duration.seconds(60)
+      }
+    });
+
+    // Fargate Service
+    this.fargateService = new ecs.FargateService(this, 'BackendService', {
+      cluster: this.ecsCluster,
+      taskDefinition: taskDefinition,
+      serviceName: 'strands-backend-service',
+      desiredCount: 1,
+      assignPublicIp: false,
+      securityGroups: [ecsSecurityGroup],
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      enableExecuteCommand: true,
+      healthCheckGracePeriod: cdk.Duration.seconds(120)
+    });
+
+    targetGroup.addTarget(this.fargateService);
+
+    // HTTP Listener
+    this.applicationLoadBalancer.addListener('HttpListener', {
+      port: 80,
+      protocol: elbv2.ApplicationProtocol.HTTP,
+      defaultTargetGroups: [targetGroup]
+    });
+
+    // ECS SSM Parameters
+    new ssm.StringParameter(this, 'ALBDnsNameParameter', {
+      parameterName: `${parameterBasePath}/alb/dns-name`,
+      stringValue: this.applicationLoadBalancer.loadBalancerDnsName,
+      description: 'Application Load Balancer DNS name',
+      simpleName: false,
+    });
+
+    new ssm.StringParameter(this, 'ALBUrlParameter', {
+      parameterName: `${parameterBasePath}/alb/url`,
+      stringValue: `http://${this.applicationLoadBalancer.loadBalancerDnsName}`,
+      description: 'Application Load Balancer URL',
+      simpleName: false,
+    });
+
+    // Outputs
+
+    new cdk.CfnOutput(this, 'EcrRepositoryUri', {
+      value: ecrRepository.repositoryUri,
+      description: 'ECR repository URI for backend',
+      exportName: 'StrandsBackend-EcrRepositoryUri',
+    });
+
+    // ECS Outputs
+    new cdk.CfnOutput(this, 'ApplicationLoadBalancerDnsName', {
+      value: this.applicationLoadBalancer.loadBalancerDnsName,
+      description: 'Application Load Balancer DNS name',
+      exportName: 'StrandsBackend-ALBDnsName',
+    });
+
+    new cdk.CfnOutput(this, 'ApplicationLoadBalancerUrl', {
+      value: `http://${this.applicationLoadBalancer.loadBalancerDnsName}`,
+      description: 'Application Load Balancer URL',
+      exportName: 'StrandsBackend-ALBUrl',
+    });
+
+    new cdk.CfnOutput(this, 'EcsClusterArn', {
+      value: this.ecsCluster.clusterArn,
+      description: 'ECS Cluster ARN',
+      exportName: 'StrandsBackend-EcsClusterArn',
+    });
+
+    new cdk.CfnOutput(this, 'EcsServiceArn', {
+      value: this.fargateService.serviceArn,
+      description: 'ECS Service ARN',
+      exportName: 'StrandsBackend-EcsServiceArn',
+    });
+  }
+}

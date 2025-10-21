@@ -1,0 +1,230 @@
+#root {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  /* overflow: hidden; -- Removed to allow scrolling on non-canvas pages */
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+/* Full-width layout for visual builder */
+.awsui-app-layout {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+}
+
+/* Canvas-specific styles - prevent scrolling only on canvas page */
+.canvas-page {
+  overflow: hidden !important;
+}
+
+.canvas-page #root {
+  overflow: hidden !important;
+}
+
+.canvas-page body {
+  overflow: hidden !important;
+}
+
+/* Ensure the main content area uses full available space */
+.awsui-app-layout__content {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+/* Make the React Flow canvas use full available space */
+.react-flow {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Remove any default margins/padding from body and html */
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  /* overflow: hidden; -- Removed to allow scrolling on non-canvas pages */
+}/* Ov
+erride ContentLayout max-width constraints */
+.awsui-content-layout {
+  max-width: none !important;
+  width: 100% !important;
+}
+
+.awsui-content-layout__content {
+  max-width: none !important;
+  width: 100% !important;
+  padding: 0 !important;
+}
+
+/* Override any container constraints within the content area */
+.awsui-app-layout__content .awsui-content-layout {
+  max-width: none !important;
+}
+
+/* Ensure the main content container uses full width */
+.awsui-app-layout__main {
+  max-width: none !important;
+  width: 100% !important;
+}
+
+/* Properties Panel Improvements */
+.awsui-split-panel {
+  transition: all 0.3s ease-in-out !important;
+}
+
+.awsui-split-panel__content {
+  transition: all 0.3s ease-in-out !important;
+}
+
+/* Responsive panel sizing */
+@media (max-width: 768px) {
+  .awsui-split-panel[data-position="side"] {
+    min-width: 280px !important;
+    max-width: 90vw !important;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1200px) {
+  .awsui-split-panel[data-position="side"] {
+    min-width: 320px !important;
+    max-width: 400px !important;
+  }
+}
+
+@media (min-width: 1201px) {
+  .awsui-split-panel[data-position="side"] {
+    min-width: 350px !important;
+    max-width: 500px !important;
+  }
+}
+
+/* Bottom panel constraints */
+.awsui-split-panel[data-position="bottom"] {
+  min-height: 200px !important;
+  max-height: 60vh !important;
+}
+
+/* Smooth panel position transitions */
+.awsui-split-panel__divider {
+  transition: all 0.2s ease-in-out !important;
+}
+
+/* Properties panel content spacing */
+.awsui-split-panel .awsui-container {
+  margin: 0 !important;
+}
+
+.awsui-split-panel .awsui-form {
+  padding: 16px !important;
+}
+
+/* Node styling fixes - Keep handles visible and remove dual borders */
+.react-flow__node {
+  /* Don't override React Flow's default node styling */
+}
+
+/* Ensure handles remain visible and properly styled */
+.react-flow__handle {
+  border: 2px solid #ffffff !important;
+  transition: all 0.2s ease-in-out !important;
+  z-index: 10 !important; /* Ensure handles are above other elements */
+}
+
+/* Handle styling is managed by component inline styles */
+
+/* Code editor consistency */
+.awsui-code-editor {
+  border: 1px solid var(--awsui-color-border-input) !important;
+  border-radius: 4px !important;
+}
+
+/* Ensure consistent spacing in expandable sections */
+.awsui-expandable-section__content {
+  padding-top: 16px !important;
+}
+
+/* Enhanced edge visual feedback */
+.react-flow__edge-path {
+  stroke-width: 2px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
+  transition: all 0.2s ease-in-out;
+}
+
+[data-awsui-theme="dark"] .react-flow__edge-path {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+}
+
+/* Enhanced edge hover effects */
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke-width: 3px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+}
+
+[data-awsui-theme="dark"] .react-flow__edge:hover .react-flow__edge-path {
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+}
+
+/* Selected edge styling */
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #ff9900 !important;
+  stroke-width: 3px;
+  filter: drop-shadow(0 2px 6px rgba(255, 153, 0, 0.3));
+}
+
+/* Edge interaction states */
+.react-flow__edge {
+  cursor: pointer;
+}
+
+.react-flow__edge:hover {
+  z-index: 1000;
+}
+
+/* Animated edge effects - maintain existing animation */
+.react-flow__edge-path[stroke-dasharray] {
+  animation: dash 20s linear infinite;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -1000;
+  }
+}

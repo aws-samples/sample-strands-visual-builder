@@ -1,0 +1,26 @@
+# Strands Visual Builder Backend Requirements
+# Core Strands SDK and tools
+strands-agents>=1.10.0
+strands-agents-tools>=0.2.9
+
+# FastAPI and web server
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+
+# AWS and Bedrock support
+boto3>=1.34.0
+botocore>=1.34.0
+
+# AgentCore deployment and tools support
+bedrock-agentcore-starter-toolkit>=0.1.10  # For deployment automation
+bedrock-agentcore>=0.1.0  # Official AWS AgentCore tools (includes code_interpreter_client)
+
+# Authentication and JWT
+python-jose[cryptography]>=3.3.0
+requests>=2.31.0
+
+# Additional utilities
+python-multipart>=0.0.6
+python-json-logger>=2.0.7
+python-dotenv>=1.0.0
