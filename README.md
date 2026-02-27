@@ -87,7 +87,7 @@ For development and testing, set up the local environment:
 ./start.sh
 
 # 2. Access the application
-# Frontend: http://localhost:5173
+# Frontend: http://localhost:7001
 # Backend API: http://localhost:8080  
 ```
 
