@@ -1,0 +1,311 @@
+/* Custom Amplify UI theme with beautiful background */
+
+:root {
+  --amplify-colors-brand-primary-10: #000716;
+  --amplify-colors-brand-primary-20: #003181;
+  --amplify-colors-brand-primary-40: #0073bb;
+  --amplify-colors-brand-primary-60: #0084c7;
+  --amplify-colors-brand-primary-80: #539fe2;
+  --amplify-colors-brand-primary-90: #879ec7;
+  --amplify-colors-brand-primary-100: #d5dbdb;
+}
+
+/* Beautiful gradient background with geometric shapes */
+.auth-container {
+  min-height: 100vh;
+  background: 
+    /* Main gradient - Strands themed colors */
+    linear-gradient(135deg, 
+      #667eea 0%, 
+      #764ba2 25%, 
+      #f093fb 50%, 
+      #f5576c 75%, 
+      #4facfe 100%
+    );
+  background-size: 400% 400%;
+  animation: gradientShift 15s ease infinite;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Animated gradient background */
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Floating geometric shapes */
+.auth-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: 
+    /* Floating circles and shapes */
+    radial-gradient(circle at 20% 80%, rgba(255,255,255,0.1) 40px, transparent 41px),
+    radial-gradient(circle at 80% 20%, rgba(255,255,255,0.08) 30px, transparent 31px),
+    radial-gradient(circle at 40% 40%, rgba(255,255,255,0.06) 20px, transparent 21px),
+    radial-gradient(circle at 60% 80%, rgba(255,255,255,0.1) 35px, transparent 36px),
+    radial-gradient(circle at 90% 60%, rgba(255,255,255,0.05) 25px, transparent 26px),
+    radial-gradient(circle at 10% 30%, rgba(255,255,255,0.08) 45px, transparent 46px);
+  background-size: 
+    400px 400px, 350px 350px, 
+    300px 300px, 450px 450px,
+    250px 250px, 500px 500px;
+  animation: floatShapes 25s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@keyframes floatShapes {
+  0%, 100% { 
+    background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 0 0;
+    opacity: 0.6;
+  }
+  25% { 
+    background-position: 50px -30px, -40px 50px, 30px 40px, -50px -20px, 40px -50px, -30px 40px;
+    opacity: 0.8;
+  }
+  50% { 
+    background-position: -30px 60px, 80px -50px, -60px -30px, 40px 80px, -80px 20px, 50px -60px;
+    opacity: 0.4;
+  }
+  75% { 
+    background-position: 80px 40px, -50px -80px, 60px 50px, -90px 30px, 30px 90px, -60px -50px;
+    opacity: 0.7;
+  }
+}
+
+/* Additional subtle geometric pattern */
+.auth-container::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: 
+    /* Subtle geometric lines */
+    linear-gradient(45deg, transparent 48%, rgba(255,255,255,0.03) 49%, rgba(255,255,255,0.03) 51%, transparent 52%),
+    linear-gradient(-45deg, transparent 48%, rgba(255,255,255,0.02) 49%, rgba(255,255,255,0.02) 51%, transparent 52%);
+  background-size: 60px 60px, 60px 60px;
+  animation: geometricPattern 20s linear infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+@keyframes geometricPattern {
+  0% { background-position: 0 0, 30px 30px; }
+  100% { background-position: 60px 60px, 90px 90px; }
+}
+
+/* Authenticator container styling */
+.amplify-authenticator {
+  --amplify-components-authenticator-router-background-color: transparent;
+  --amplify-components-authenticator-router-border-color: transparent;
+  --amplify-components-authenticator-router-box-shadow: none;
+  position: relative;
+  z-index: 10;
+}
+
+/* Center the authenticator with glassmorphism effect */
+.auth-form-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.auth-form-wrapper {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  padding: 40px;
+  max-width: 600px;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Subtle inner glow */
+.auth-form-wrapper::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, 
+    rgba(255,255,255,0.1) 0%, 
+    transparent 50%, 
+    rgba(255,255,255,0.1) 100%
+  );
+  border-radius: 20px;
+  pointer-events: none;
+}
+
+/* Form styling with glassmorphism */
+.amplify-authenticator [data-amplify-authenticator-signin],
+.amplify-authenticator [data-amplify-authenticator-signup],
+.amplify-authenticator [data-amplify-authenticator-confirm-sign-up] {
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: 
+    0 20px 40px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Add subtle animation to form */
+.amplify-authenticator [data-amplify-authenticator-signin],
+.amplify-authenticator [data-amplify-authenticator-signup] {
+  animation: slideInUp 0.6s ease-out;
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Input field styling */
+.amplify-input {
+  --amplify-components-fieldcontrol-border-color: var(--color-border-input-default);
+  --amplify-components-fieldcontrol-focus-border-color: var(--color-border-input-focused);
+  --amplify-components-fieldcontrol-border-radius: 8px;
+  --amplify-components-fieldcontrol-font-size: 14px;
+  --amplify-components-fieldcontrol-padding-inline: 12px;
+  --amplify-components-fieldcontrol-padding-block: 8px;
+}
+
+/* Button styling */
+.amplify-button[data-variation="primary"] {
+  --amplify-components-button-primary-background-color: var(--color-background-button-primary-default);
+  --amplify-components-button-primary-hover-background-color: var(--color-background-button-primary-hover);
+  --amplify-components-button-primary-focus-background-color: var(--color-background-button-primary-active);
+  --amplify-components-button-primary-color: var(--color-text-button-primary-default);
+  --amplify-components-button-border-radius: 16px;
+  --amplify-components-button-font-weight: 700;
+  --amplify-components-button-padding-inline: 16px;
+  --amplify-components-button-padding-block: 8px;
+}
+
+.amplify-button[data-variation="link"] {
+  --amplify-components-button-link-color: var(--color-text-link-default);
+  --amplify-components-button-link-hover-color: var(--color-text-link-hover);
+}
+
+/* Tab styling */
+.amplify-tabs {
+  --amplify-components-tabs-item-color: var(--color-text-body-secondary);
+  --amplify-components-tabs-item-active-color: var(--color-text-accent);
+  --amplify-components-tabs-item-border-color: var(--color-border-divider-default);
+  --amplify-components-tabs-item-active-border-color: var(--color-border-item-focused);
+}
+
+/* Label styling */
+.amplify-label {
+  --amplify-components-label-color: var(--color-text-form-label);
+  --amplify-components-label-font-weight: 700;
+  --amplify-components-label-font-size: 14px;
+}
+
+/* Error message styling */
+.amplify-field__error-message {
+  --amplify-components-field-error-color: var(--color-text-status-error);
+  font-size: 12px;
+}
+
+/* Header styling */
+.amplify-heading {
+  --amplify-components-heading-color: var(--color-text-heading-default);
+}
+
+/* Link styling */
+.amplify-link {
+  --amplify-components-link-color: var(--color-text-link-default);
+  --amplify-components-link-hover-color: var(--color-text-link-hover);
+}
+
+/* Dark mode adjustments */
+[data-awsui-theme="dark"] .amplify-authenticator [data-amplify-authenticator-signin],
+[data-awsui-theme="dark"] .amplify-authenticator [data-amplify-authenticator-signup],
+[data-awsui-theme="dark"] .amplify-authenticator [data-amplify-authenticator-confirm-sign-up] {
+  background: var(--color-background-container-content);
+  border-color: var(--color-border-divider-default);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .auth-form-wrapper {
+    max-width: 90%;
+    padding: 20px;
+    margin: 10px;
+  }
+  
+  .amplify-authenticator [data-amplify-authenticator-signin],
+  .amplify-authenticator [data-amplify-authenticator-signup],
+  .amplify-authenticator [data-amplify-authenticator-confirm-sign-up] {
+    padding: 16px;
+    margin: 8px;
+  }
+  
+  .auth-form-container {
+    padding: 10px;
+  }
+}
+
+/* Loading state */
+.amplify-button[data-loading="true"] {
+  --amplify-components-button-primary-background-color: var(--color-background-button-primary-disabled);
+  cursor: not-allowed;
+}
+
+/* Focus states for accessibility */
+.amplify-input:focus,
+.amplify-button:focus {
+  outline: 2px solid var(--color-border-item-focused);
+  outline-offset: 2px;
+}
+
+/* Custom spacing */
+.amplify-authenticator__form {
+  gap: 16px;
+}
+
+.amplify-field-group {
+  margin-bottom: 16px;
+}
+
+/* Custom alert styling for better integration */
+.amplify-alert {
+  --amplify-components-alert-info-background-color: var(--color-background-status-info);
+  --amplify-components-alert-info-color: var(--color-text-status-info);
+  --amplify-components-alert-error-background-color: var(--color-background-status-error);
+  --amplify-components-alert-error-color: var(--color-text-status-error);
+  --amplify-components-alert-warning-background-color: var(--color-background-status-warning);
+  --amplify-components-alert-warning-color: var(--color-text-status-warning);
+  --amplify-components-alert-success-background-color: var(--color-background-status-success);
+  --amplify-components-alert-success-color: var(--color-text-status-success);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
