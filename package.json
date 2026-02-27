@@ -19,7 +19,7 @@
     "@cloudscape-design/components": "^3.0.1078",
     "@cloudscape-design/global-styles": "^1.0.45",
     "aws-amplify": "^6.15.5",
-    "axios": "^1.12.2",
+    "axios": "^1.13.5",
     "lucide-react": "^0.542.0",
     "react": "19.1.1",
     "react-dom": "19.1.1",
