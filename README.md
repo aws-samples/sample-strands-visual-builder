@@ -30,7 +30,7 @@ Strands Visual Builder provides a visual development environment for experimenti
 
 ### AWS Requirements
 - AWS account with appropriate permissions
-- Bedrock model access enabled (Claude 3.5 Sonnet recommended)
+- Bedrock model access enabled for your preferred Claude model
 - AgentCore service access in your region
 - CDK bootstrap completed in target region
 
