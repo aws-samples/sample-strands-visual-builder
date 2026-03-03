@@ -784,8 +784,8 @@ EOF
     AGENTCORE_RUNTIME_ARN=$(aws bedrock-agentcore-control list-agent-runtimes \
         --profile "$AWS_PROFILE" \
         --region "$AWS_REGION" \
-        --query "agentRuntimes[?contains(agentRuntimeName, 'expert_agent') || contains(agentRuntimeName, 'expert-agent')].agentRuntimeArn | [0]" \
-        --output text 2>/dev/null)
+        --query "agentRuntimes[?contains(agentRuntimeName, 'expert_agent') || contains(agentRuntimeName, 'expert-agent')].agentRuntimeArn" \
+        --output text 2>/dev/null | head -1 | tr -d '[:space:]')
     
     if [[ -z "$AGENTCORE_RUNTIME_ARN" || "$AGENTCORE_RUNTIME_ARN" == "None" ]]; then
         print_error "Could not retrieve AgentCore Runtime ARN"
