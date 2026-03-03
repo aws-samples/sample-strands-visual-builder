@@ -1,6 +1,9 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 import React from 'react';
 import { SideNavigation, Box, SpaceBetween, Button, Icon, Popover } from '@cloudscape-design/components';
-import { Bot, Calculator, Terminal, FileText, Globe, Cpu, Clock, Image, Database, Search, Cloud, Settings, Edit, Camera, Video } from 'lucide-react';
+import { Bot, Calculator, Terminal, FileText, Globe, Cpu, Clock, Image, Database, Search, Cloud, Settings, Edit, Camera, Video, Link } from 'lucide-react';
 import { getAvailableTools } from '../generators/expertAgentGenerator';
 
 const agentTemplates = [
@@ -79,7 +82,7 @@ const getToolIcon = (toolName) => {
   return iconMap[toolName] || <Settings size={16} />;
 };
 
-export default function ComponentPalette({ onAddAgent, onAddTool, onAddTemplate }) {
+export default function ComponentPalette({ onAddAgent, onAddTool, onAddTemplate, onAddMCPServer, onAddGateway }) {
   const [availableTools, setAvailableTools] = React.useState([]);
   const [toolsLoading, setToolsLoading] = React.useState(true);
 
@@ -219,6 +222,30 @@ export default function ComponentPalette({ onAddAgent, onAddTool, onAddTemplate 
           icon={<Bot size={16} />}
           text="Agent"
           onClick={() => onAddAgent && onAddAgent()}
+        />
+        
+        <DraggableNavItem
+          nodeType="mcpServer"
+          data={{
+            label: 'MCP Server',
+            configuration: ''
+          }}
+          icon={<Link size={16} />}
+          text="MCP Server"
+          onClick={() => onAddMCPServer && onAddMCPServer()}
+        />
+
+        <DraggableNavItem
+          nodeType="gateway"
+          data={{
+            label: 'AgentCore Gateway',
+            gatewayId: '',
+            endpoint: '',
+            region: 'us-west-2'
+          }}
+          icon={<Cloud size={16} />}
+          text="AgentCore Gateway"
+          onClick={() => onAddGateway && onAddGateway()}
         />
         
         {/* Render tools by category */}

@@ -1,3 +1,6 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 """
 S3 Code Storage Service for Expert Agent
 
@@ -61,7 +64,7 @@ class S3CodeStorageService:
         Args:
             session_id: Unique session identifier
             code_content: The code content to store
-            code_type: Type of code ('pure_strands', 'agentcore_ready', or 'requirements')
+            code_type: Type of code ('pure_strands', 'agentcore_ready', 'mcp_server', or 'requirements')
             file_extension: File extension to use (default: '.py', use '.txt' for requirements)
             
         Returns:
@@ -69,8 +72,8 @@ class S3CodeStorageService:
         """
         try:
             # Validate code_type
-            if code_type not in ['pure_strands', 'agentcore_ready', 'requirements']:
-                raise ValueError(f"Invalid code_type: {code_type}. Must be 'pure_strands', 'agentcore_ready', or 'requirements'")
+            if code_type not in ['pure_strands', 'agentcore_ready', 'mcp_server', 'requirements']:
+                raise ValueError(f"Invalid code_type: {code_type}. Must be 'pure_strands', 'agentcore_ready', 'mcp_server', or 'requirements'")
             
             # Validate inputs
             if not session_id or not session_id.strip():
@@ -145,15 +148,15 @@ class S3CodeStorageService:
         
         Args:
             session_id: Unique session identifier
-            code_type: Type of code ('pure_strands', 'agentcore_ready', or 'requirements')
+            code_type: Type of code ('pure_strands', 'agentcore_ready', 'mcp_server', or 'requirements')
             
         Returns:
             Dictionary with code content and metadata
         """
         try:
             # Validate code_type
-            if code_type not in ['pure_strands', 'agentcore_ready', 'requirements']:
-                raise ValueError(f"Invalid code_type: {code_type}. Must be 'pure_strands', 'agentcore_ready', or 'requirements'")
+            if code_type not in ['pure_strands', 'agentcore_ready', 'mcp_server', 'requirements']:
+                raise ValueError(f"Invalid code_type: {code_type}. Must be 'pure_strands', 'agentcore_ready', 'mcp_server', or 'requirements'")
             
             # Sanitize session_id for S3 key
             safe_session_id = ''.join(c for c in session_id if c.isalnum() or c in '-_')

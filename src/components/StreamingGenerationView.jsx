@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 /**
  * Streaming Generation View - Minimal chat interface for code generation progress
  * Reuses existing chat components from AgentCoreChatPanel
@@ -17,6 +20,7 @@ import MarkdownRenderer from './MarkdownRenderer';
 export default function StreamingGenerationView({
   isGenerating = false,
   streamingText = '',
+  statusMessage = '',
   agentName = 'Code Generation Agent'
 }) {
   const messagesEndRef = useRef(null);
@@ -73,7 +77,7 @@ export default function StreamingGenerationView({
               />
             ) : (
               <Box color="text-status-inactive">
-                Starting code generation...
+                {statusMessage || 'Starting code generation...'}
               </Box>
             )}
           </ChatBubble>

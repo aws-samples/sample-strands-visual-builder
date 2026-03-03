@@ -1,3 +1,6 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 """
 Configuration settings for the Strands Visual Builder backend
 """
@@ -31,6 +34,7 @@ class Settings:
     AWS_REGION: str = os.getenv("AWS_REGION", "us-west-2")
     COGNITO_USER_POOL_ID: str = os.getenv("COGNITO_USER_POOL_ID", "")
     COGNITO_USER_POOL_CLIENT_ID: str = os.getenv("COGNITO_USER_POOL_CLIENT_ID", "")
+    COGNITO_DOMAIN: str = os.getenv("COGNITO_DOMAIN", "")  # For MCP OAuth integration
     DYNAMODB_TABLE_NAME: str = os.getenv("DYNAMODB_TABLE_NAME", "")
     
     # Bedrock Configuration

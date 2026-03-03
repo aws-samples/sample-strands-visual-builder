@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 /**
  * AgentCore Deployment Panel
  * Handles deployment of Strands agents to Amazon Bedrock AgentCore
@@ -45,6 +48,19 @@ const PYTHON_VERSIONS = [
   { label: 'Python 3.10', value: '3.10' },
   { label: 'Python 3.11', value: '3.11' },
   { label: 'Python 3.12', value: '3.12' }
+];
+
+const DEPLOYMENT_TYPES = [
+  { 
+    label: 'Agent Runtime', 
+    value: 'agent',
+    description: 'Deploy as a conversational agent that can handle multi-turn conversations'
+  },
+  { 
+    label: 'MCP Server', 
+    value: 'mcp',
+    description: 'Deploy as a tool server that other agents can consume via Model Context Protocol'
+  }
 ];
 
 const LOG_LEVELS = [
@@ -193,6 +209,9 @@ export default function AgentCoreDeploymentPanel({
     tags: {}
   });
 
+  // Deployment type state
+  const [deploymentType, setDeploymentType] = useState('agent');
+
   // Validation state
   const [validationErrors, setValidationErrors] = useState({
     agent_name: null,
@@ -224,6 +243,11 @@ export default function AgentCoreDeploymentPanel({
   const [isLoadingRequirements, setIsLoadingRequirements] = useState(false);
   const [requirementsError, setRequirementsError] = useState(null);
 
+  // MCP server code preview state
+  const [mcpServerCode, setMcpServerCode] = useState('');
+  const [isLoadingMcpCode, setIsLoadingMcpCode] = useState(false);
+  const [mcpCodeError, setMcpCodeError] = useState(null);
+
   // Update agent name when prop changes
   useEffect(() => {
     const sanitizedName = sanitizeAgentName(agentName);
@@ -248,8 +272,12 @@ export default function AgentCoreDeploymentPanel({
     if (requestId) {
       loadAgentCoreCode();
       loadRequirements();
+      // Only load MCP code if MCP deployment type is selected
+      if (deploymentType === 'mcp') {
+        loadMcpServerCode();
+      }
     }
-  }, [requestId]);
+  }, [requestId, deploymentType]);
 
   const loadAgentCoreCode = async () => {
     if (!requestId) {
@@ -308,6 +336,33 @@ export default function AgentCoreDeploymentPanel({
       setRequirementsError('Unexpected error loading requirements.txt from S3');
     } finally {
       setIsLoadingRequirements(false);
+    }
+  };
+
+  const loadMcpServerCode = async () => {
+    if (!requestId) {
+      console.warn('No request ID available');
+      return;
+    }
+
+    setIsLoadingMcpCode(true);
+    setMcpCodeError(null);
+
+    try {
+      const result = await s3CodeService.fetchCodeFile(requestId, 'mcp_server');
+
+      if (result.success) {
+        setMcpServerCode(result.code);
+      } else if (result.notFound) {
+        setMcpCodeError('No MCP server code found. Please generate code first.');
+      } else {
+        setMcpCodeError(result.error || 'Failed to load MCP server code from S3');
+      }
+    } catch (error) {
+      console.error('Error loading MCP server code from S3');
+      setMcpCodeError('Unexpected error loading MCP server code from S3');
+    } finally {
+      setIsLoadingMcpCode(false);
     }
   };
 
@@ -429,8 +484,21 @@ export default function AgentCoreDeploymentPanel({
   };
 
   const startDeployment = async () => {
-    // Use AgentCore code if available, otherwise fall back to generated code
-    const codeTodeploy = agentCoreCode || generatedCode;
+    // Use appropriate code based on deployment type
+    let codeTodeploy;
+    
+    if (deploymentType === 'mcp') {
+      // For MCP deployment, we need both the base Strands code and MCP server code
+      codeTodeploy = agentCoreCode || generatedCode;
+      
+      if (!mcpServerCode) {
+        setDeploymentError('No MCP server code available for deployment. Please generate code first.');
+        return;
+      }
+    } else {
+      // For agent deployment, use AgentCore code if available, otherwise fall back to generated code
+      codeTodeploy = agentCoreCode || generatedCode;
+    }
 
     if (!codeTodeploy) {
       setDeploymentError('No code available for deployment. Please generate code first.');
@@ -463,7 +531,9 @@ export default function AgentCoreDeploymentPanel({
         body: JSON.stringify({
           strands_code: codeTodeploy,
           config: config,
-          requirements_txt: requirementsContent || null
+          requirements_txt: requirementsContent || null,
+          deployment_type: deploymentType,
+          mcp_server_code: deploymentType === 'mcp' ? mcpServerCode : null
         })
       });
 
@@ -474,21 +544,25 @@ export default function AgentCoreDeploymentPanel({
 
       const result = await response.json();
 
+      // Debug: Log the full response
+      console.log('Deployment result:', JSON.stringify(result, null, 2));
+
       if (result.success) {
         // Deployment is complete!
         const successData = {
           agent_runtime_arn: result.agent_runtime_arn,
-          message: result.message
+          message: result.message,
+          deployment_type: result.deployment_type,
+          mcp_oauth_config: result.mcp_oauth_config
         };
 
+        console.log('Success data:', JSON.stringify(successData, null, 2));
 
         setDeploymentSuccess(successData);
 
-
-
-        // Notify parent component (this might switch tabs)
-        if (onDeploymentComplete) {
-
+        // For MCP deployments, don't auto-navigate so user can see MCP OAuth config
+        // For agent deployments, auto-navigate to chat tab
+        if (result.deployment_type !== 'mcp' && onDeploymentComplete) {
           onDeploymentComplete(result.agent_runtime_arn);
         }
       } else {
@@ -531,6 +605,11 @@ export default function AgentCoreDeploymentPanel({
 
     // Check required fields
     if (!config.agent_name) {
+      return false;
+    }
+
+    // For MCP deployment, check if MCP server code is available
+    if (deploymentType === 'mcp' && !mcpServerCode) {
       return false;
     }
 
@@ -580,22 +659,24 @@ export default function AgentCoreDeploymentPanel({
         return true;
       })() && (
           <Container>
-            <Alert type="success" header="🎉 AgentCore Deployment Successful!">
+            <Alert type="success" header="AgentCore Deployment Successful!">
               <SpaceBetween size="m">
                 <Box variant="h3" color="text-status-success">
-                  Your agent is now deployed and ready for testing!
+                  Your {deploymentSuccess.deployment_type === 'mcp' ? 'MCP server' : 'agent'} is now deployed and ready for testing!
                 </Box>
 
                 <Box variant="p">
-                  Your Strands agent has been successfully deployed to Amazon Bedrock AgentCore.
-                  You can now test it using the chat interface or invoke it programmatically using the ARN below.
+                  Your Strands {deploymentSuccess.deployment_type === 'mcp' ? 'MCP server' : 'agent'} has been successfully deployed to Amazon Bedrock AgentCore.
+                  {deploymentSuccess.deployment_type === 'mcp' 
+                    ? ' You can now connect to it from any MCP client using the configuration below.'
+                    : ' You can now test it using the chat interface or invoke it programmatically using the ARN below.'}
                 </Box>
 
                 <KeyValuePairs
                   columns={1}
                   items={[
                     {
-                      label: 'Agent Runtime ARN',
+                      label: deploymentSuccess.deployment_type === 'mcp' ? 'MCP Server ARN' : 'Agent Runtime ARN',
                       value: (
                         <Box>
                           <code style={{
@@ -605,7 +686,7 @@ export default function AgentCoreDeploymentPanel({
                             fontSize: '12px',
                             wordBreak: 'break-all'
                           }}>
-                            {deploymentSuccess.agent_runtime_arn}
+                            {deploymentSuccess.agent_runtime_arn || deploymentSuccess.agent_arn}
                           </code>
                         </Box>
                       )
@@ -619,11 +700,74 @@ export default function AgentCoreDeploymentPanel({
                       value: config.region
                     },
                     {
-                      label: 'Agent Name',
+                      label: deploymentSuccess.deployment_type === 'mcp' ? 'MCP Server Name' : 'Agent Name',
                       value: config.agent_name
                     }
                   ]}
                 />
+
+                {/* MCP OAuth Integration for MCP Deployments */}
+                {deploymentSuccess.deployment_type === 'mcp' && deploymentSuccess.mcp_oauth_config && (() => {
+                  const oauthConfig = deploymentSuccess.mcp_oauth_config;
+                  const CopyField = ({ label, value }) => (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '12px', color: '#687078', marginBottom: '2px' }}>{label}</div>
+                        <code style={{ fontSize: '13px', wordBreak: 'break-all', background: '#f2f3f3', padding: '4px 8px', borderRadius: '4px', display: 'block' }}>{value}</code>
+                      </div>
+                      <Popover
+                        dismissButton={false}
+                        position="top"
+                        size="small"
+                        triggerType="custom"
+                        content={<StatusIndicator type="success">Copied</StatusIndicator>}
+                      >
+                        <Button
+                          iconName="copy"
+                          variant="icon"
+                          onClick={() => { navigator.clipboard.writeText(value); }}
+                          ariaLabel={`Copy ${label}`}
+                        />
+                      </Popover>
+                    </div>
+                  );
+                  return (
+                  <ExpandableSection
+                    headerText="MCP Client Integration Details"
+                    variant="container"
+                    defaultExpanded={true}
+                  >
+                    <SpaceBetween size="m">
+                      <Box variant="p">
+                        Use these details to connect this MCP server in your MCP client:
+                      </Box>
+
+                      <CopyField label="MCP Server URL" value={oauthConfig.mcp_server_url} />
+                      <CopyField label="Auth Type" value={oauthConfig.auth_type || 'OAuth 2.0'} />
+                      <CopyField label="Authorization URL" value={oauthConfig.authorization_url} />
+                      <CopyField label="Token URL" value={oauthConfig.token_url} />
+                      <CopyField label="Client ID" value={oauthConfig.client_id} />
+                      <CopyField label="Scopes" value={oauthConfig.scopes?.join(', ') || ''} />
+                      <CopyField label="Client Secret" value={oauthConfig.client_secret || 'NOT_CONFIGURED'} />
+
+                      {oauthConfig.note && (
+                        <Alert type="info">{oauthConfig.note}</Alert>
+                      )}
+
+                      <Button
+                        variant="primary"
+                        onClick={() => {
+                          const configCopy = { ...oauthConfig };
+                          delete configCopy.note;
+                          navigator.clipboard.writeText(JSON.stringify(configCopy, null, 2));
+                        }}
+                      >
+                        Copy All Configuration
+                      </Button>
+                    </SpaceBetween>
+                  </ExpandableSection>
+                  );
+                })()}
 
                 <Box variant="small" color="text-body-secondary">
                   <SpaceBetween size="xs">
@@ -638,11 +782,12 @@ export default function AgentCoreDeploymentPanel({
                     <Button
                       variant="primary"
                       onClick={() => {
-                        // Copy ARN to clipboard
-                        navigator.clipboard.writeText(deploymentSuccess.agent_runtime_arn);
+                        // Copy ARN to clipboard (handle both response formats)
+                        const arn = deploymentSuccess.agent_runtime_arn || deploymentSuccess.agent_arn;
+                        navigator.clipboard.writeText(arn);
                       }}
                     >
-                      📋 Copy ARN
+                      Copy ARN
                     </Button>
                     <Button
                       variant="normal"
@@ -652,7 +797,7 @@ export default function AgentCoreDeploymentPanel({
                         window.open(consoleUrl, '_blank');
                       }}
                     >
-                      🔗 View in AWS Console
+                      View in AWS Console
                     </Button>
                   </SpaceBetween>
                 </Box>
@@ -689,6 +834,9 @@ export default function AgentCoreDeploymentPanel({
                 error && !error.isValid && (
                   <li key={key}>Tag ({key}): {error.errors.join(', ')}</li>
                 )
+              )}
+              {deploymentType === 'mcp' && !mcpServerCode && (
+                <li>MCP Server Code: Required for MCP deployment. Please generate code first.</li>
               )}
             </ul>
           </SpaceBetween>
@@ -775,6 +923,40 @@ export default function AgentCoreDeploymentPanel({
               />
             </FormField>
           </ColumnLayout>
+
+          {/* Deployment Type Selection */}
+          <FormField
+            label="Deployment Type"
+            description="Choose how to deploy your multi-agent system"
+            info={
+              <Popover
+                dismissButton={false}
+                position="top"
+                size="large"
+                triggerType="custom"
+                content={
+                  <SpaceBetween size="s">
+                    <Box>
+                      <strong>Agent Runtime:</strong> Deploy as a conversational agent that handles multi-turn conversations. 
+                      Best for chat interfaces and complex workflows.
+                    </Box>
+                    <Box>
+                      <strong>MCP Server:</strong> Deploy as a tool server that exposes your multi-agent system as callable tools. 
+                      Best for integration with other systems and reusable functionality.
+                    </Box>
+                  </SpaceBetween>
+                }
+              >
+                <Button variant="icon" iconName="status-info" />
+              </Popover>
+            }
+          >
+            <Select
+              selectedOption={DEPLOYMENT_TYPES.find(t => t.value === deploymentType)}
+              onChange={({ detail }) => setDeploymentType(detail.selectedOption.value)}
+              options={DEPLOYMENT_TYPES}
+            />
+          </FormField>
 
           <FormField
             label="Description"
@@ -1078,6 +1260,78 @@ export default function AgentCoreDeploymentPanel({
               )}
             </SpaceBetween>
           </ExpandableSection>
+
+          {/* MCP Server Code Preview - Only show for MCP deployment */}
+          {deploymentType === 'mcp' && (
+            <ExpandableSection headerText="MCP Server Code Preview" defaultExpanded={false}>
+              <SpaceBetween size="m">
+                <Box variant="p" color="text-body-secondary">
+                  This MCP server code wraps your multi-agent system as callable tools that other systems can consume via the Model Context Protocol.
+                </Box>
+
+                {isLoadingMcpCode && (
+                  <Box textAlign="center" padding="m">
+                    <ProgressBar
+                      status="in-progress"
+                      value={50}
+                      label="Loading MCP server code..."
+                    />
+                  </Box>
+                )}
+
+                {mcpCodeError && (
+                  <Alert type="warning" header="MCP Server Code Not Available">
+                    <SpaceBetween size="s">
+                      <Box>{mcpCodeError}</Box>
+                      <Button
+                        onClick={loadMcpServerCode}
+                        disabled={!requestId || isLoadingMcpCode}
+                      >
+                        Retry Loading
+                      </Button>
+                    </SpaceBetween>
+                  </Alert>
+                )}
+
+                {mcpServerCode && !isLoadingMcpCode && (
+                  <FormField
+                    label="MCP Server Code (Read-Only)"
+                    description="This code will be deployed as an MCP server on AgentCore runtime"
+                  >
+                    <CodeView
+                      content={mcpServerCode}
+                      lineNumbers
+                      wrapLines
+                      actions={
+                        <Button
+                          onClick={loadMcpServerCode}
+                          disabled={!requestId || isLoadingMcpCode}
+                        >
+                          Refresh
+                        </Button>
+                      }
+                    />
+                  </FormField>
+                )}
+
+                {!mcpServerCode && !isLoadingMcpCode && !mcpCodeError && (
+                  <Box textAlign="center" padding="m">
+                    <SpaceBetween size="s">
+                      <Box variant="p" color="text-body-secondary">
+                        No MCP server code available. Generate code first to see the preview.
+                      </Box>
+                      <Button
+                        onClick={loadMcpServerCode}
+                        disabled={!requestId}
+                      >
+                        Load MCP Server Code
+                      </Button>
+                    </SpaceBetween>
+                  </Box>
+                )}
+              </SpaceBetween>
+            </ExpandableSection>
+          )}
 
           {/* Requirements.txt Preview */}
           <ExpandableSection headerText="Dependencies (requirements.txt)" defaultExpanded={false}>

@@ -1,7 +1,12 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 /**
  * Enhanced Models Service - Client for fetching available Bedrock models from backend
  * Supports caching, error handling, retry logic, and model grouping
  */
+
+import { authService } from './authService.js';
 
 class ModelsService {
   constructor(baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080') {
@@ -20,6 +25,22 @@ class ModelsService {
    */
   setSettingsProvider(settingsProvider) {
     this.settingsProvider = settingsProvider;
+  }
+
+  /**
+   * Get authenticated headers for API requests
+   */
+  async getAuthHeaders() {
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const token = await authService.getToken();
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+    } catch (error) {
+      console.warn('Failed to get auth token for models request');
+    }
+    return headers;
   }
 
   /**
@@ -100,9 +121,7 @@ class ModelsService {
 
       const response = await fetch(`${this.baseUrl}/available-models`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: await this.getAuthHeaders(),
         signal: controller.signal
       });
 
@@ -152,9 +171,7 @@ class ModelsService {
 
       const response = await fetch(`${this.baseUrl}/model-info/${encodeURIComponent(modelId)}`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: await this.getAuthHeaders(),
         signal: controller.signal
       });
 

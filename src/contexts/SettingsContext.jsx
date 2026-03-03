@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import settingsService from '../services/settingsService';
 
@@ -16,7 +19,8 @@ const DEFAULT_SETTINGS = {
   enableReasoning: true,            // Enable reasoning token support (always on for better code quality)
   enablePromptCaching: false,       // Enable prompt caching for cost optimization
   runtimeModelConfiguration: false, // Enable runtime model switching
-  runtimeSelectedModel: 'us.anthropic.claude-3-7-sonnet-20250219-v1:0'  // Model for runtime switching
+  runtimeSelectedModel: 'us.anthropic.claude-3-7-sonnet-20250219-v1:0',  // Model for runtime switching
+  thinkingBudgetTokens: 0          // Max tokens for model thinking/reasoning (0 = unlimited)
 };
 
 const SettingsContext = createContext();

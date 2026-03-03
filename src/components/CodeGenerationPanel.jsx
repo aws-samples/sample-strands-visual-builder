@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 /**
  * Code Generation Panel - Dedicated component for code generation and execution
  * This component provides a comprehensive interface for SDK code generation
@@ -74,6 +77,7 @@ export default function CodeGenerationPanel({
   // Streaming generation state - minimal addition
   const [useStreaming, setUseStreaming] = useState(true); // Backward compatibility toggle
   const [streamingText, setStreamingText] = useState('');
+  const [generationStatus, setGenerationStatus] = useState('');
 
   // S3 code storage state
   const [requestId, setRequestId] = useState(null);
@@ -162,6 +166,7 @@ export default function CodeGenerationPanel({
     setCodeGenerationResult(null);
     setGeneratedCode('');
     setStreamingText(''); // Reset streaming text
+    setGenerationStatus(''); // Reset generation status
 
     try {
       let config;
@@ -186,7 +191,10 @@ export default function CodeGenerationPanel({
         settingsContext.settings, 
         config, 
         true, // enableStreaming
-        (progressText) => setStreamingText(progressText) // onProgress callback
+        (progressText, statusMessage) => {
+          setStreamingText(progressText);
+          if (statusMessage) setGenerationStatus(statusMessage);
+        } // onProgress callback
       );
 
 
@@ -415,6 +423,7 @@ export default function CodeGenerationPanel({
                 <StreamingGenerationView
                   isGenerating={isGenerating}
                   streamingText={streamingText}
+                  statusMessage={generationStatus}
                   agentName="Code Generation Agent"
                 />
               )}

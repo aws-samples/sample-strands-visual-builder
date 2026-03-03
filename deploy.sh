@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
 
 # Strands Visual Builder - Streamlined Deployment Script
 # Based on the refactor plan: Infrastructure → Services → Frontend
@@ -168,6 +170,8 @@ check_and_bootstrap_cdk() {
     
     # Set CDK environment variables
     export CDK_DEFAULT_REGION="$AWS_REGION"
+    export AWS_DEFAULT_REGION="$AWS_REGION"
+    export AWS_REGION="$AWS_REGION"
     export CDK_DEFAULT_ACCOUNT="$ACCOUNT_ID"
     
     # Check if CDK is properly bootstrapped
@@ -209,9 +213,13 @@ deploy_cdk_infrastructure() {
     
     # Set CDK environment variables
     export CDK_DEFAULT_REGION="$AWS_REGION"
+    export AWS_DEFAULT_REGION="$AWS_REGION"
+    export AWS_REGION="$AWS_REGION"
     export CDK_DEFAULT_ACCOUNT=$(aws sts get-caller-identity --profile "$AWS_PROFILE" --query Account --output text)
     
-    # Clean up any stale CDK processes or lock files
+    # Clean up any stale CDK processes, lock files, and cached context
+    echo '{}' > cdk.context.json
+    # Clean up lock files
     rm -f cdk.out/*.lock
     
     print_status "Deploying infrastructure stacks individually for better control..."

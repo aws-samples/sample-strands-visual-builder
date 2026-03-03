@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 import * as cdk from 'aws-cdk-lib';
 
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
@@ -208,7 +211,8 @@ export class BackendStack extends cdk.Stack {
       resources: ['*'],
     }));
 
-    // AgentCore Control Plane permissions - separate policy for control plane
+    // AgentCore Control Plane permissions - runtime/endpoint operations only
+    // (Gateway control plane actions are in the dedicated GATEWAY MANAGEMENT section below)
     this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
@@ -220,13 +224,39 @@ export class BackendStack extends cdk.Stack {
         'bedrock-agentcore-control:ListAgentRuntimeEndpoints',
         'bedrock-agentcore-control:ListAgentRuntimes',
         'bedrock-agentcore-control:DeleteAgentRuntime',
-        'bedrock-agentcore-control:GetAgentRuntimeEndpoint',
-        'bedrock-agentcore-control:ListAgentRuntimeEndpoints',
         'bedrock-agentcore-control:UpdateAgentRuntimeEndpoint',
         'bedrock-agentcore-control:DeleteAgentRuntimeEndpoint',
+        'bedrock-agentcore-control:ListTagsForResource',
+        'bedrock-agentcore-control:TagResource',
       ],
       resources: ['*'],  // Control plane operations typically require wildcard
     }));
+
+    // AgentCore Gateway permissions - for gateway management feature
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'bedrock-agentcore:CreateGateway',
+        'bedrock-agentcore:GetGateway',
+        'bedrock-agentcore:ListGateways',
+        'bedrock-agentcore:DeleteGateway',
+        'bedrock-agentcore:UpdateGateway',
+        'bedrock-agentcore:CreateGatewayTarget',
+        'bedrock-agentcore:GetGatewayTarget',
+        'bedrock-agentcore:ListGatewayTargets',
+        'bedrock-agentcore:DeleteGatewayTarget',
+        'bedrock-agentcore:UpdateGatewayTarget',
+        'bedrock-agentcore:TagResource',
+        'bedrock-agentcore:ListTagsForResource',
+        'bedrock-agentcore:SynchronizeGatewayTargets',
+      ],
+      resources: [
+        `arn:aws:bedrock-agentcore:*:${this.account}:gateway/*`,
+      ],
+    }));
+
+    // Note: bedrock-agentcore:ListGateways and CreateGateway are covered by the
+    // resource-scoped gateway block above (gateway/* ARN pattern).
 
     // AgentCore Memory permissions - separate resource pattern for memory
     this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
@@ -268,6 +298,14 @@ export class BackendStack extends cdk.Stack {
         `arn:aws:iam::${this.account}:role/AmazonBedrockAgentCore*`,
         `arn:aws:iam::${this.account}:role/service-role/AmazonBedrockAgentCore*`
       ],
+      conditions: {
+        StringEquals: {
+          'iam:PassedToService': [
+            'bedrock-agentcore.amazonaws.com',
+            'codebuild.amazonaws.com',
+          ]
+        }
+      },
     }));
 
     this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
@@ -278,8 +316,8 @@ export class BackendStack extends cdk.Stack {
         'logs:DescribeLogStreams'
       ],
       resources: [
-        `arn:aws:logs:*:*:log-group:/aws/bedrock-agentcore/*`,
-        `arn:aws:logs:*:*:log-group:/aws/codebuild/*`
+        `arn:aws:logs:*:${this.account}:log-group:/aws/bedrock-agentcore/*`,
+        `arn:aws:logs:*:${this.account}:log-group:/aws/codebuild/*`
       ],
     }));
 
@@ -305,7 +343,7 @@ export class BackendStack extends cdk.Stack {
         'ecr:ListImages',
         'ecr:TagResource'
       ],
-      resources: [`arn:aws:ecr:*:*:repository/bedrock-agentcore-*`],
+      resources: [`arn:aws:ecr:*:${this.account}:repository/bedrock-agentcore-*`],
     }));
 
     // Deny delete operations for safety
@@ -318,14 +356,56 @@ export class BackendStack extends cdk.Stack {
         'bedrock-agentcore:DeleteEvent',
         'bedrock-agentcore:DeleteMemoryRecord',
         'bedrock-agentcore-control:DeleteAgentRuntime',
-        'bedrock-agentcore-control:GetAgentRuntimeEndpoint',
-        'bedrock-agentcore-control:ListAgentRuntimeEndpoints',
-        'bedrock-agentcore-control:UpdateAgentRuntimeEndpoint',
         'bedrock-agentcore-control:DeleteAgentRuntimeEndpoint',
         'bedrock-agentcore-control:DeleteMemory',
-        'bedrock-agentcore-control:DeleteCodeInterpreter'
+        'bedrock-agentcore-control:DeleteCodeInterpreter',
+        // Gateway delete operations
+        'bedrock-agentcore-control:DeleteGateway',
+        'bedrock-agentcore-control:DeleteGatewayTarget',
+        // Lambda write operations (app is READ-ONLY for Lambda)
+        'lambda:CreateFunction', 'lambda:DeleteFunction', 'lambda:AddPermission',
+        'lambda:UpdateFunctionCode', 'lambda:UpdateFunctionConfiguration',
       ],
       resources: ['*'],
+    }));
+
+    // DENY: Delete operations on gateway IAM roles
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.DENY,
+      actions: ['iam:DeleteRole', 'iam:DeleteRolePolicy', 'iam:DetachRolePolicy'],
+      resources: [`arn:aws:iam::${this.account}:role/strands-vb-gw-*`],
+    }));
+
+    // DENY: Prevent attaching dangerous managed policies to AgentCore roles
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.DENY,
+      actions: ['iam:AttachRolePolicy'],
+      resources: [`arn:aws:iam::${this.account}:role/*BedrockAgentCore*`],
+      conditions: {
+        ArnLike: {
+          'iam:PolicyArn': [
+            'arn:aws:iam::aws:policy/AdministratorAccess',
+            'arn:aws:iam::aws:policy/IAMFullAccess',
+            'arn:aws:iam::aws:policy/PowerUserAccess',
+          ]
+        }
+      },
+    }));
+
+    // DENY: Prevent attaching dangerous managed policies to gateway roles
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.DENY,
+      actions: ['iam:AttachRolePolicy'],
+      resources: [`arn:aws:iam::${this.account}:role/strands-vb-gw-*`],
+      conditions: {
+        ArnLike: {
+          'iam:PolicyArn': [
+            'arn:aws:iam::aws:policy/AdministratorAccess',
+            'arn:aws:iam::aws:policy/IAMFullAccess',
+            'arn:aws:iam::aws:policy/PowerUserAccess',
+          ]
+        }
+      },
     }));
 
     // ECR permissions for AgentCore deployment - wildcard regions for cross-region support
@@ -342,7 +422,10 @@ export class BackendStack extends cdk.Stack {
         'ecr:UploadLayerPart',
         'ecr:CompleteLayerUpload'
       ],
-      resources: [`arn:aws:ecr:*:${this.account}:repository/*`],
+      resources: [
+        `arn:aws:ecr:*:${this.account}:repository/bedrock-agentcore-*`,
+        `arn:aws:ecr:*:${this.account}:repository/strands-*`,
+      ],
     }));
 
     // ECR GetAuthorizationToken requires wildcard resource (AWS service requirement)
@@ -394,6 +477,69 @@ export class BackendStack extends cdk.Stack {
         `arn:aws:iam::${this.account}:role/AmazonBedrockAgentCore*`,
         `arn:aws:iam::${this.account}:role/service-role/AmazonBedrockAgentCore*`
       ],
+    }));
+
+    // =============================================================================
+    // GATEWAY MANAGEMENT PERMISSIONS
+    // =============================================================================
+
+    // Gateway control plane — create and manage gateways
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'bedrock-agentcore-control:CreateGateway',
+        'bedrock-agentcore-control:GetGateway',
+        'bedrock-agentcore-control:ListGateways',
+        'bedrock-agentcore-control:CreateGatewayTarget',
+        'bedrock-agentcore-control:GetGatewayTarget',
+        'bedrock-agentcore-control:ListGatewayTargets',
+        'bedrock-agentcore-control:TagResource',
+        'bedrock-agentcore-control:ListTagsForResource',
+      ],
+      resources: ['*'],  // Gateway ARN format not yet scoped by AWS
+    }));
+
+    // Gateway IAM roles — strict prefix + permissions boundary required
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['iam:CreateRole', 'iam:GetRole', 'iam:PutRolePolicy', 'iam:TagRole', 'iam:GetRolePolicy', 'iam:ListRolePolicies'],
+      resources: [`arn:aws:iam::${this.account}:role/strands-vb-gw-*`],
+    }));
+
+    // PassRole — only to AgentCore for gateway roles
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['iam:PassRole'],
+      resources: [`arn:aws:iam::${this.account}:role/strands-vb-gw-*`],
+      conditions: {
+        StringEquals: { 'iam:PassedToService': 'bedrock-agentcore.amazonaws.com' }
+      },
+    }));
+
+    // Lambda — READ ONLY (list and get, no create/modify/delete)
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['lambda:ListFunctions', 'lambda:GetFunction', 'lambda:ListTags'],
+      resources: ['*'],
+    }));
+
+    // DENY: Force permissions boundary on gateway role creation
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.DENY,
+      actions: ['iam:CreateRole'],
+      resources: [`arn:aws:iam::${this.account}:role/strands-vb-gw-*`],
+      conditions: {
+        StringNotEquals: {
+          'iam:PermissionsBoundary': `arn:aws:iam::${this.account}:policy/strands-vb-gw-permissions-boundary-${this.account}`
+        }
+      },
+    }));
+
+    // DENY: Prevent removing/changing permissions boundary on gateway roles
+    this.ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.DENY,
+      actions: ['iam:DeleteRolePermissionsBoundary', 'iam:PutRolePermissionsBoundary'],
+      resources: [`arn:aws:iam::${this.account}:role/strands-vb-gw-*`],
     }));
 
     // S3 permissions for AgentCore deployment artifacts - wildcard regions for cross-region support

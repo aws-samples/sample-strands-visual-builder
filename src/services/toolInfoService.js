@@ -1,8 +1,29 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 /**
  * Service for fetching enhanced tool information from the backend
  */
 
+import { authService } from './authService.js';
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+
+/**
+ * Get authenticated headers for API requests
+ */
+async function getAuthHeaders() {
+  const headers = { 'Content-Type': 'application/json' };
+  try {
+    const token = await authService.getToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  } catch (error) {
+    console.warn('Failed to get auth token for tool info request');
+  }
+  return headers;
+}
 
 /**
  * Fetch comprehensive information about a specific tool
@@ -11,7 +32,8 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080
  */
 export const fetchToolInfo = async (toolName) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/tool-info/${toolName}`);
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/api/tool-info/${toolName}`, { headers });
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);

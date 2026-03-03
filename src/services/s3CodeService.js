@@ -1,7 +1,12 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 /**
  * S3 Code Service - Client for fetching code files from S3 temporary storage
  * This service handles fetching both pure Strands code and AgentCore-ready code
  */
+
+import { authService } from './authService.js';
 
 class S3CodeService {
   constructor(baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080') {
@@ -18,6 +23,22 @@ class S3CodeService {
   }
 
   /**
+   * Get authenticated headers for API requests
+   */
+  async getAuthHeaders() {
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const token = await authService.getToken();
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+    } catch (error) {
+      console.warn('Failed to get auth token for S3 code request');
+    }
+    return headers;
+  }
+
+  /**
    * Get the current timeout value from settings or use default
    */
   getTimeout(timeoutType = 'backendRequestTimeout') {
@@ -30,7 +51,7 @@ class S3CodeService {
   /**
    * Fetch code file from S3 temporary storage
    * @param {string} sessionId - Session identifier
-   * @param {string} codeType - Type of code ('pure_strands', 'agentcore_ready', or 'requirements')
+   * @param {string} codeType - Type of code ('pure_strands', 'agentcore_ready', 'mcp_server', or 'requirements')
    * @returns {Promise<Object>} Code content and metadata
    */
   async fetchCodeFile(sessionId, codeType) {
@@ -39,8 +60,8 @@ class S3CodeService {
         throw new Error('Session ID is required');
       }
 
-      if (!['pure_strands', 'agentcore_ready', 'requirements'].includes(codeType)) {
-        throw new Error('Code type must be "pure_strands", "agentcore_ready", or "requirements"');
+      if (!['pure_strands', 'agentcore_ready', 'mcp_server', 'requirements'].includes(codeType)) {
+        throw new Error('Code type must be "pure_strands", "agentcore_ready", "mcp_server", or "requirements"');
       }
 
 
@@ -51,9 +72,7 @@ class S3CodeService {
 
       const response = await fetch(`${this.baseUrl}/api/s3-code/${sessionId}/${codeType}`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: await this.getAuthHeaders(),
         signal: controller.signal
       });
 
@@ -126,9 +145,7 @@ class S3CodeService {
 
       const response = await fetch(`${this.baseUrl}/api/s3-code/${sessionId}`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: await this.getAuthHeaders(),
         signal: controller.signal
       });
 

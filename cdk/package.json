@@ -1,6 +1,7 @@
 {
   "name": "strands-visual-builder-cdk",
   "version": "1.0.0",
+  "license": "MIT-0",
   "description": "CDK infrastructure for Strands Visual Builder",
   "main": "index.js",
   "scripts": {

@@ -15,6 +15,8 @@ Strands Visual Builder provides a visual development environment for experimenti
 - **Visual Canvas**: React Flow-based drag-and-drop interface for designing agent workflows with real-time validation
 - **AI Code Generation**: Specialized Strands agent on AgentCore generates context-aware implementations supporting swarms, graphs, sequential workflows, and agent-as-tools patterns
 - **AgentCore Deployment**: One-click deployment to Amazon Bedrock AgentCore Runtime with live testing via streaming chat interface
+- **AgentCore Gateway**: Create and manage AgentCore Gateways with Lambda function targets for custom tool integration
+- **MCP Server Integration**: Add Model Context Protocol servers to agent designs for extended tool capabilities
 - **Tool Ecosystem**: Pre-built Strands tools library with smart discovery, documentation, and custom tool support
 - **Project Management**: Cognito authentication, DynamoDB-backed persistence, version tracking, and export/import
 
@@ -33,6 +35,7 @@ Strands Visual Builder provides a visual development environment for experimenti
 - Bedrock model access enabled for your preferred Claude model
 - AgentCore service access in your region
 - CDK bootstrap completed in target region
+- Gateway features require Lambda functions with `strands-` prefix
 
 ## Getting Started
 
@@ -89,6 +92,7 @@ Deployment automatically generates `.env`. Create `.env.local` for local overrid
 
 ### AWS Infrastructure (CDK)
 - **Amazon Bedrock AgentCore** — serverless agent runtime
+- **Amazon Bedrock AgentCore Gateway** — Lambda-based tool integration via MCP
 - **Amazon Cognito** — user authentication
 - **Amazon DynamoDB** — project persistence
 - **Amazon S3** — frontend hosting and temp storage
@@ -96,6 +100,11 @@ Deployment automatically generates `.env`. Create `.env.local` for local overrid
 - **Amazon ECS + ALB** — containerized backend
 - **Amazon ECR** — Docker image registry
 - **AWS Systems Manager** — parameter management
+
+### MCP Integration
+- **Model Context Protocol** servers for extended tool capabilities
+- **Gateway MCP** for connecting agents to Lambda-based tools
+- **Custom MCP Servers** for third-party service integration
 
 ## Project Structure
 
@@ -151,8 +160,7 @@ strands-visual-builder/
 │
 ├── AgentCore Expert Agent
 │   ├── expert_agent.py             # Main AgentCore deployment agent
-│   ├── model_utils.py              # Model configuration utilities
-│   └── agentcore-deployment/       # Deployment artifacts (generated)
+│   └── model_utils.py              # Model configuration utilities
 │
 ├── AWS Infrastructure (CDK)
 │   ├── cdk/
@@ -220,7 +228,7 @@ BACKEND_ROLE_ARN=arn:aws:iam::123456789012:role/strands-visual-builder-backend-r
 ### AWS Setup
 - Run `aws configure` for local development
 - Enable Bedrock model access in AWS console
-- For save/load features: Deploy CDK infrastructure (`cd cdk && ./deploy.sh`)
+- For save/load features: Deploy CDK infrastructure (`./deploy.sh --profile your-profile`)
 - For AWS deployment: use IAM roles (no access keys needed)
 
 ## Deployment Architecture
@@ -282,6 +290,122 @@ Email: admin@company.com
 Temporary Password: Check email for temporary password
 ```
 
+### Gateway Integration
+
+The Visual Builder supports AgentCore Gateway for connecting agents to Lambda-based tools:
+
+1. Create a gateway from the **AgentCore** dropdown menu → **Gateway Management**
+2. Create Lambda functions with the `strands-` prefix in your AWS account
+3. Add Lambda targets to your gateway with tool schemas defining the tools
+4. Grant the gateway role permission to invoke your Lambda (see [Gateway Lambda Permissions](#gateway-lambda-permissions))
+5. Drag the gateway component onto your agent design canvas
+6. After deploying the agent, grant the runtime role gateway access (see [Deployed Agent Runtime Permissions](#deployed-agent-runtime-permissions))
+
+## Post-Deployment Configuration
+
+### Gateway Lambda Permissions
+
+After creating a gateway and adding a Lambda target, you must grant the gateway's IAM role permission to invoke the Lambda function:
+
+```bash
+# 1. Find the gateway role name (format: strands-vb-gw-{gateway-name}-role)
+GATEWAY_ROLE="strands-vb-gw-{your-gateway-name}-role"
+
+# 2. Add Lambda invoke permission to the gateway role
+aws lambda add-permission \
+  --function-name {your-lambda-function-name} \
+  --statement-id gateway-invoke \
+  --action lambda:InvokeFunction \
+  --principal bedrock-agentcore.amazonaws.com \
+  --source-arn "arn:aws:iam::{account-id}:role/${GATEWAY_ROLE}" \
+  --profile your-profile
+```
+
+**Note**: Lambda functions used with gateways must have the `strands-` prefix in their name (e.g., `strands-inventory-tools`). This is enforced by the gateway role's permissions boundary.
+
+### Deployed Agent Runtime Permissions
+
+After deploying an agent to AgentCore, you may need to add IAM permissions to the agent's runtime role for the tools it uses:
+
+#### Knowledge Base Access
+
+If your agent uses a Bedrock Knowledge Base (Retrieve tool):
+
+```bash
+# 1. Find the deployed agent's runtime role
+RUNTIME_ID=$(aws bedrock-agentcore-control list-agent-runtimes --region us-west-2 \
+  --query "agentRuntimeSummaries[?contains(agentRuntimeName, 'your_agent_name')].agentRuntimeId" \
+  --output text --profile your-profile)
+
+ROLE_ARN=$(aws bedrock-agentcore-control get-agent-runtime \
+  --agent-runtime-id $RUNTIME_ID --region us-west-2 \
+  --query "agentRuntime.roleArn" --output text --profile your-profile)
+
+ROLE_NAME=$(echo $ROLE_ARN | awk -F'/' '{print $NF}')
+
+# 2. Add Knowledge Base permissions
+aws iam put-role-policy --role-name $ROLE_NAME \
+  --policy-name KnowledgeBaseAccess \
+  --policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": ["bedrock:Retrieve", "bedrock:RetrieveAndGenerate"],
+        "Resource": "arn:aws:bedrock:{region}:{account-id}:knowledge-base/{kb-id}"
+      },
+      {
+        "Effect": "Allow",
+        "Action": ["aoss:APIAccessAll"],
+        "Resource": "arn:aws:aoss:{region}:{account-id}:collection/{collection-id}"
+      }
+    ]
+  }' --profile your-profile
+```
+
+#### Gateway Access
+
+If your agent uses an AgentCore Gateway:
+
+```bash
+# Add Gateway permissions to the runtime role
+aws iam put-role-policy --role-name $ROLE_NAME \
+  --policy-name GatewayAccess \
+  --policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": ["bedrock-agentcore:*"],
+        "Resource": "arn:aws:bedrock-agentcore:{region}:{account-id}:gateway/*"
+      }
+    ]
+  }' --profile your-profile
+```
+
+#### Third-Party API Keys
+
+If your agent uses tools that require API keys (e.g., Tavily for web search), pass them as environment variables during deployment in the AgentCore Deployment panel.
+
+### MCP Server Deployments (OAuth)
+
+When you deploy an agent as an **MCP server** (instead of a regular agent), external MCP clients connect to it via Cognito OAuth 2.0. The app automatically creates a Cognito OAuth client and returns the integration details (authorization URL, token URL, client ID, scopes) after deployment.
+
+To connect an external MCP client:
+
+1. After MCP deployment, the app displays the OAuth configuration details
+2. Update the Cognito OAuth callback URL to match your MCP client:
+   ```bash
+   # The default callback URL is configured for Amazon QuickSight
+   # To use a different MCP client, update the callback URL in:
+   # cdk/lib/03-auth-stack.ts → mcpOAuthClient → oAuth → callbackUrls
+   # Then redeploy: cdk deploy StrandsAuthStack --profile your-profile
+   ```
+3. Retrieve the client secret from the AWS Console (Cognito > App clients) — it is not exposed in the API response for security
+4. Configure your MCP client with the provided OAuth URLs, client ID, and secret
+
+**Note**: Regular agent deployments (non-MCP) do not require OAuth — they are invoked via IAM auth through the Visual Builder's backend.
+
 ## Troubleshooting
 
 ### Prerequisites Check
@@ -339,7 +463,6 @@ aws cognito-idp admin-set-user-password \
 
 ## Coming Soon
 
-- **AgentCore Gateway Integration**: Semantic tool discovery and API-to-MCP conversion
 - **Enhanced MCP Support**: Visual MCP configuration, server validation, and custom MCP servers
 - **Natural Language Agent Creation**: Describe agent requirements conversationally with AI-driven architecture selection
 
@@ -357,11 +480,13 @@ Review the pricing of these services and confirm your use case is within budget 
 
 ## Security
 
-See [CONTRIBUTING](CONTRIBUTING.md) for more information.
+See [SECURITY.md](SECURITY.md) for vulnerability reporting information.
+
+See [CONTRIBUTING](CONTRIBUTING.md) for contribution guidelines.
 
 ## License
 
-This library is licensed under the MIT-0 License. See the LICENSE file.
+This library is licensed under the MIT-0 License. See the [LICENSE](LICENSE) file.
 
 **Disclaimer: This is a sample application for development, testing, and educational purposes only. It is not intended for production use as-is.**
 

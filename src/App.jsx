@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 import React, { useState, useCallback, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { 
@@ -16,6 +19,8 @@ import 'reactflow/dist/style.css';
 import Canvas from './components/Canvas';
 import AgentNode from './components/AgentNode';
 import ToolNode from './components/ToolNode';
+import MCPServerNode from './components/MCPServerNode';
+import GatewayNode from './components/GatewayNode';
 import PropertyPanel from './components/PropertyPanel';
 import ComponentPalette from './components/ComponentPalette';
 import TopBar from './components/TopBar';
@@ -23,6 +28,7 @@ import CodeGenerationPanel from './components/CodeGenerationPanel';
 import AuthGuard from './components/AuthGuard';
 import SettingsPage from './pages/SettingsPage';
 import DeploymentsPage from './pages/DeploymentsPage';
+import GatewayManagementPage from './pages/GatewayManagementPage';
 import { SettingsProvider } from './contexts/SettingsContext';
 import useBuilderStore from './store/useBuilderStore';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -32,6 +38,8 @@ import './App.css';
 const nodeTypes = {
   agent: AgentNode,
   tool: ToolNode,
+  mcpServer: MCPServerNode,
+  gateway: GatewayNode,
 };
 
 // Main Canvas Component
@@ -181,6 +189,28 @@ const MainCanvas = () => {
 
   }, []);
 
+  const handleAddMCPServer = useCallback(() => {
+    addNode({
+      type: 'mcpServer',
+      data: {
+        label: 'MCP Server',
+        configuration: ''
+      }
+    });
+  }, [addNode]);
+
+  const handleAddGateway = useCallback(() => {
+    addNode({
+      type: 'gateway',
+      data: {
+        label: 'AgentCore Gateway',
+        gatewayId: '',
+        endpoint: '',
+        region: 'us-west-2'
+      }
+    });
+  }, [addNode]);
+
   const onDragOver = useCallback((event) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
@@ -235,6 +265,8 @@ const MainCanvas = () => {
             onAddAgent={handleAddAgent}
             onAddTool={handleAddTool}
             onAddTemplate={handleAddTemplate}
+            onAddMCPServer={handleAddMCPServer}
+            onAddGateway={handleAddGateway}
           />
         }
         splitPanelPreferences={{
@@ -399,6 +431,7 @@ function App() {
           <Route path="/" element={<MainCanvas />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/deployments" element={<DeploymentsPage />} />
+          <Route path="/gateway" element={<GatewayManagementPage />} />
         </Routes>
       </Router>
     </SettingsProvider>

@@ -1,3 +1,6 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 """
 AgentCore Invocation Service
 
@@ -30,6 +33,7 @@ class ChatSession(BaseModel):
     """Chat session with deployed agent"""
     session_id: str
     agent_runtime_arn: str
+    user_email: str = ""
     messages: list[ChatMessage] = []
     is_active: bool = True
     created_at: datetime
@@ -80,6 +84,7 @@ class AgentCoreInvocationService:
         session = ChatSession(
             session_id=session_id,
             agent_runtime_arn=agent_runtime_arn,
+            user_email=user_email or "",
             created_at=datetime.now(),
             last_activity=datetime.now()
         )
@@ -93,6 +98,13 @@ class AgentCoreInvocationService:
     async def get_chat_session(self, session_id: str) -> Optional[ChatSession]:
         """Get chat session by ID"""
         return self.sessions.get(session_id)
+
+    async def get_chat_session_for_user(self, session_id: str, user_email: str) -> Optional[ChatSession]:
+        """Get chat session by ID, only if owned by user"""
+        session = self.sessions.get(session_id)
+        if session and session.user_email and session.user_email != user_email:
+            return None  # Not owned by this user
+        return session
     
     async def invoke_agent(
         self, 
@@ -414,29 +426,39 @@ class AgentCoreInvocationService:
                 'error': 'Processing error'
             }
     
-    async def get_session_history(self, session_id: str) -> list[ChatMessage]:
-        """Get chat history for a session"""
+    async def get_session_history(self, session_id: str, user_email: str = None) -> list[ChatMessage]:
+        """Get chat history for a session (only if owned by user)"""
         session = self.sessions.get(session_id)
         if not session:
             return []
-        
+        if user_email and session.user_email and session.user_email != user_email:
+            return []  # Not owned by this user
         return session.messages
-    
-    async def list_active_sessions(self) -> list[ChatSession]:
-        """List all active chat sessions"""
-        return [session for session in self.sessions.values() if session.is_active]
-    
-    async def close_session(self, session_id: str) -> bool:
-        """Close a chat session"""
+
+    async def list_active_sessions(self, user_email: str = None) -> list[ChatSession]:
+        """List active chat sessions, filtered by user if provided"""
+        sessions = [s for s in self.sessions.values() if s.is_active]
+        if user_email:
+            sessions = [s for s in sessions if s.user_email == user_email]
+        return sessions
+
+    async def close_session(self, session_id: str, user_email: str = None) -> bool:
+        """Close a chat session (only if owned by user)"""
         if session_id in self.sessions:
-            self.sessions[session_id].is_active = False
+            session = self.sessions[session_id]
+            if user_email and session.user_email and session.user_email != user_email:
+                return False  # Not owned by this user
+            session.is_active = False
             logger.info("Closed chat session")
             return True
         return False
-    
-    async def delete_session(self, session_id: str) -> bool:
-        """Delete a chat session"""
+
+    async def delete_session(self, session_id: str, user_email: str = None) -> bool:
+        """Delete a chat session (only if owned by user)"""
         if session_id in self.sessions:
+            session = self.sessions[session_id]
+            if user_email and session.user_email and session.user_email != user_email:
+                return False  # Not owned by this user
             del self.sessions[session_id]
             logger.info("Deleted chat session")
             return True

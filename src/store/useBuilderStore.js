@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 import { create } from 'zustand';
 import { addEdge, applyNodeChanges, applyEdgeChanges } from 'reactflow';
 import authService from '../services/authService';
@@ -215,6 +218,8 @@ const useBuilderStore = create((set, get) => ({
     
     const agentNodes = nodes.filter(n => n.type === 'agent');
     const toolNodes = nodes.filter(n => n.type === 'tool');
+    const mcpServerNodes = nodes.filter(n => n.type === 'mcpServer');
+    const gatewayNodes = nodes.filter(n => n.type === 'gateway');
     
     // Smart orphan detection logic:
     // - Single agent alone = no warning
@@ -231,10 +236,10 @@ const useBuilderStore = create((set, get) => ({
     }
     // If there's only one agent (or no agents), no orphan warnings for agents
     
-    // Find orphan tools (tools not connected to any agent)
-    // Tools always need connections to be useful
-    const orphanTools = toolNodes.filter(tool =>
-      !edges.some(edge => edge.target === tool.id)
+    // Find orphan tools, MCP servers, and gateways (not connected to any agent)
+    // Tools, MCP servers, and gateways always need connections to be useful
+    const orphanTools = [...toolNodes, ...mcpServerNodes, ...gatewayNodes].filter(node =>
+      !edges.some(edge => edge.target === node.id)
     );
     
     set({ orphanAgents, orphanTools });
@@ -287,7 +292,12 @@ const useBuilderStore = create((set, get) => ({
         // Clear any cached Amplify data
         try {
           localStorage.removeItem('amplify-authenticator-authState');
-          localStorage.removeItem('CognitoIdentityServiceProvider.2feq5bsv0q2jacu2k5nt48fhjg.LastAuthUser');
+          // Clear all Cognito-related localStorage keys dynamically
+          Object.keys(localStorage).forEach(key => {
+            if (key.startsWith('CognitoIdentityServiceProvider.')) {
+              localStorage.removeItem(key);
+            }
+          });
           sessionStorage.clear();
         } catch (e) {
 
@@ -752,6 +762,16 @@ function validateConnection(sourceNode, targetNode, connection) {
     return true;
   }
   
+  if (sourceNode.type === 'agent' && targetNode.type === 'mcpServer') {
+    // Agent-to-MCP Server: MCP integration
+    return true;
+  }
+  
+  if (sourceNode.type === 'agent' && targetNode.type === 'gateway') {
+    // Agent-to-Gateway: AgentCore Gateway integration
+    return true;
+  }
+  
   if (sourceNode.type === 'agent' && targetNode.type === 'agent') {
     // Agent-to-Agent: Multi-agent patterns (Swarm, Graph, Sequential, Agents as Tools)
 
@@ -759,8 +779,8 @@ function validateConnection(sourceNode, targetNode, connection) {
   }
   
   // Block unsupported connection types
-  if (sourceNode.type === 'tool') {
-    console.warn('Tools cannot be connection sources');
+  if (sourceNode.type === 'tool' || sourceNode.type === 'mcpServer' || sourceNode.type === 'gateway') {
+    console.warn('Tools, MCP servers, and gateways cannot be connection sources');
     return false;
   }
   

@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
@@ -143,14 +146,21 @@ const TopBar = ({ title }) => {
         onClick: () => setLoadModalVisible(true)
       }
     ] : []),
-    // AgentCore deployments (only show when authenticated)
+    // AgentCore menu (only show when authenticated)
     ...(isAuthenticated ? [
       {
-        type: "button",
+        type: "menu-dropdown",
         iconName: "status-positive",
-        ariaLabel: "AgentCore Deployments",
-        text: "Deployments",
-        onClick: () => navigate('/deployments')
+        ariaLabel: "AgentCore",
+        text: "AgentCore",
+        items: [
+          { id: "runtime", text: "AgentCore Runtime" },
+          { id: "gateway", text: "AgentCore Gateway" }
+        ],
+        onItemClick: ({ detail }) => {
+          if (detail.id === 'runtime') navigate('/deployments');
+          if (detail.id === 'gateway') navigate('/gateway');
+        }
       }
     ] : []),
     {

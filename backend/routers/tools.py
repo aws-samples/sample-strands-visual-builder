@@ -1,13 +1,18 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 """
 Tools router for managing available Strands tools
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 import logging
 import pkgutil
 import strands_tools
 import importlib
 import inspect
 from typing import Dict, Any, List, Optional
+from models.api_models import User
+from services.auth_service import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["tools"])
@@ -181,7 +186,7 @@ def parse_docstring(docstring: str) -> tuple[str, List[str], List[str]]:
     return description, examples, usage_notes
 
 @router.get("/available-tools")
-async def get_available_tools():
+async def get_available_tools(current_user: User = Depends(get_current_user)):
     """Get all available tools from strands_tools package dynamically"""
     try:
         tools = []
@@ -228,7 +233,7 @@ async def get_available_tools():
         }
 
 @router.get("/tool-info/{tool_name}")
-async def get_tool_info(tool_name: str):
+async def get_tool_info(tool_name: str, current_user: User = Depends(get_current_user)):
     """Get comprehensive information about a specific Strands tool"""
     try:
         # Import the tool module

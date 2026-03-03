@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 export { default as Canvas } from './Canvas';
 export { default as AgentNode } from './AgentNode';
 export { default as ToolNode } from './ToolNode';

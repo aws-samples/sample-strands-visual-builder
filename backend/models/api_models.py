@@ -1,3 +1,6 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 """
 Pydantic models for API requests and responses
 """
@@ -33,6 +36,12 @@ class ConnectionConfig(BaseModel):
     target: str
     type: str
 
+class MCPServerConfig(BaseModel):
+    id: str
+    label: str
+    configuration: str
+    position: Dict[str, float]
+
 class ArchitectureConfig(BaseModel):
     agentCount: int
     toolCount: int
@@ -45,6 +54,8 @@ class ArchitectureConfig(BaseModel):
 class VisualConfig(BaseModel):
     agents: List[AgentConfig]
     tools: List[ToolConfig]
+    mcpServers: List[MCPServerConfig] = []
+    gateways: List[Dict[str, Any]] = []
     connections: List[ConnectionConfig]
     architecture: ArchitectureConfig
     metadata: Dict[str, Any]
@@ -141,6 +152,7 @@ class BedrockAdvancedConfig(BaseModel):
     temperature: Optional[float] = Field(default=0.3, ge=0.0, le=1.0)
     max_tokens: Optional[int] = Field(default=4000, ge=1, le=8192)
     top_p: Optional[float] = Field(default=0.9, ge=0.0, le=1.0)
+    thinking_budget_tokens: int = Field(default=0, description="Max tokens for model thinking. 0 = unlimited")
 
 # Enhanced Visual Config with Advanced Features
 class EnhancedVisualConfig(VisualConfig):

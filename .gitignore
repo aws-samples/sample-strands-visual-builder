@@ -33,6 +33,9 @@ cdk/bin/*.js
 cdk/bin/*.js.map
 cdk/bin/*.d.ts
 
+# CDK outputs
+cdk/outputs.json
+
 # CDK context and cache files
 cdk/cdk.context.json
 **/cdk.context.json

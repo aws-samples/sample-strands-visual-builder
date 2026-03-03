@@ -1,3 +1,6 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 """
 AgentCore Expert Agent for Strands Visual Builder
 Extracted from the existing agent service for deployment to AgentCore Runtime
@@ -11,19 +14,13 @@ from bedrock_agentcore import BedrockAgentCoreApp
 from strands import Agent, tool
 from strands.models import BedrockModel
 from strands_tools import (
-    calculator,
-    current_time,
     file_read,
-    file_write,
-    editor,
-    journal,
-    think
 )
 from bedrock_agentcore.tools.code_interpreter_client import code_session
 from model_utils import format_model_for_cris, get_effective_model_id
 
 # Import S3 code storage tools
-from tools.s3_code_storage_tool import s3_write_code, s3_read_code, s3_list_session_files
+from tools.s3_code_storage_tool import s3_write_code, s3_read_code, s3_list_session_files, s3_write_all_code
 
 # Initialize AgentCore app
 app = BedrockAgentCoreApp()
@@ -104,6 +101,9 @@ def code_interpreter(code: str, description: str = "") -> str:
     - strands-agents package installation
     - strands-agents-tools package installation  
     - boto3 package installation
+    - mcp package installation (for MCP tool integration)
+    - mcp-proxy-for-aws package installation (for AgentCore Gateway)
+    - bedrock-agentcore package installation (for AgentCore deployment)
     - Comprehensive Strands agent testing and validation
     
     Packages are installed on-demand if not available. Use this for all Strands agent code testing.
@@ -176,7 +176,10 @@ def install_package(package):
 packages_to_check = [
     ('strands', 'strands-agents'),
     ('strands_tools', 'strands-agents-tools'),
-    ('boto3', 'boto3')
+    ('boto3', 'boto3'),
+    ('mcp', 'mcp'),
+    ('mcp_proxy_for_aws', 'mcp-proxy-for-aws'),
+    ('bedrock_agentcore', 'bedrock-agentcore'),
 ]
 
 for module_name, package_name in packages_to_check:
@@ -355,25 +358,20 @@ Focus on creating reliable, production-ready Strands agent code that has been ac
                 temperature=config['bedrock_temperature'],
             )
             
-            # Create expert agent with all necessary tools
+            # Create expert agent with streamlined tools
+            # Removed: think (causes sub-agent loops), s3_write_code (replaced by batch)
             self.agent = Agent(
                 model=model,
                 system_prompt=self.system_prompt,
                 tools=[
                     # Core tools for code generation
-                    calculator,
-                    current_time,
                     code_interpreter,
                     file_read,
-                    file_write,
-                    editor,
                     
-                    # Advanced reasoning and workflow tools
-                    think,
-                    journal,
+                    # Batch S3 save — all 4 files in one call
+                    s3_write_all_code,
                     
-                    # S3 code storage tools for dual code generation
-                    s3_write_code,
+                    # S3 read tools (for reading back if needed)
                     s3_read_code,
                     s3_list_session_files,
                     
@@ -566,6 +564,22 @@ async def invoke(payload):
         # Ensure correct model is being used
         if model_id:
             expert_agent._ensure_correct_model(model_id)
+        
+        # Apply thinking budget if provided
+        thinking_budget = advanced_config.get('thinking_budget_tokens', 0)
+        if thinking_budget and thinking_budget > 0:
+            try:
+                expert_agent.agent.model.update_config(
+                    additional_request_fields={
+                        "thinking": {
+                            "type": "enabled",
+                            "budgetTokens": thinking_budget
+                        }
+                    }
+                )
+                logger.info(f"🧠 Thinking budget set to {thinking_budget} tokens")
+            except Exception as e:
+                logger.warning(f"Failed to set thinking budget: {e}")
         
         # If we have a config, use code generation streaming
         if config:

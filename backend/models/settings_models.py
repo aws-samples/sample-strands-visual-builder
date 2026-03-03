@@ -1,3 +1,6 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 """
 Pydantic models for user settings
 """
@@ -42,6 +45,12 @@ class UserSettingsModel(BaseModel):
     enablePromptCaching: bool = Field(
         default=False,
         description="Enable prompt caching for cost optimization"
+    )
+    thinkingBudgetTokens: int = Field(
+        default=0,
+        ge=0,
+        le=32768,
+        description="Max tokens for model thinking/reasoning. 0 = unlimited"
     )
     # REMOVED: runtimeModelConfiguration and runtimeSelectedModel
     # These are redundant now that expert agents automatically use user's preferred model

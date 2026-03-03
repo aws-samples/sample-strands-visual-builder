@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 /**
  * Configuration Extractor - Converts visual components into structured data
  * This module extracts structured configuration from the visual builder's nodes and edges
@@ -10,6 +13,8 @@
 export function extractStructuredConfig(nodes, edges) {
   const agentNodes = nodes.filter(node => node.type === 'agent');
   const toolNodes = nodes.filter(node => node.type === 'tool');
+  const mcpServerNodes = nodes.filter(node => node.type === 'mcpServer');
+  const gatewayNodes = nodes.filter(node => node.type === 'gateway');
   
   // Extract agent definitions
   const agents = agentNodes.map(node => ({
@@ -36,6 +41,24 @@ export function extractStructuredConfig(nodes, edges) {
     position: node.position
   }));
   
+  // Extract MCP server definitions
+  const mcpServers = mcpServerNodes.map(node => ({
+    id: node.id,
+    label: node.data.label || 'MCP Server',
+    configuration: node.data.configuration || '',
+    position: node.position
+  }));
+
+  // Extract gateway definitions
+  const gateways = gatewayNodes.map(node => ({
+    id: node.id,
+    label: node.data.label || 'Gateway',
+    gatewayId: node.data.gatewayId || '',
+    gatewayEndpoint: node.data.endpoint || '',
+    region: node.data.region || 'us-west-2',
+    position: node.position
+  }));
+
   // Extract connections
   const connections = edges.map(edge => ({
     id: edge.id,
@@ -47,11 +70,13 @@ export function extractStructuredConfig(nodes, edges) {
   }));
   
   // Analyze architecture
-  const architecture = analyzeArchitecture(agents, tools, connections);
+  const architecture = analyzeArchitecture(agents, tools, connections, mcpServers);
   
   return {
     agents,
     tools,
+    mcpServers,
+    gateways,
     connections,
     architecture,
     metadata: {
@@ -65,7 +90,7 @@ export function extractStructuredConfig(nodes, edges) {
 /**
  * Analyze the architecture pattern and complexity
  */
-function analyzeArchitecture(agents, tools, connections) {
+function analyzeArchitecture(agents, tools, connections, mcpServers = []) {
   const agentCount = agents.length;
   const toolCount = tools.length;
   const connectionCount = connections.length;
@@ -102,7 +127,7 @@ function analyzeArchitecture(agents, tools, connections) {
   }
   
   // Identify patterns
-  const patterns = identifyPatterns(agents, tools, connections);
+  const patterns = identifyPatterns(agents, tools, connections, mcpServers);
   
   return {
     agentCount,
@@ -149,7 +174,7 @@ function analyzeAgentConnections(agents, connections) {
 /**
  * Identify common architecture patterns
  */
-function identifyPatterns(agents, tools, connections) {
+function identifyPatterns(agents, tools, connections, mcpServers = []) {
   const patterns = [];
   
   // Data processing pipeline
@@ -187,6 +212,12 @@ function identifyPatterns(agents, tools, connections) {
   const hasCustomTools = tools.some(t => t.type === 'custom');
   if (hasCustomTools) {
     patterns.push('custom-tool-development');
+  }
+  
+  // MCP integration
+  const hasMcpServers = mcpServers.length > 0;
+  if (hasMcpServers) {
+    patterns.push('mcp-integration');
   }
   
   return patterns;
@@ -244,6 +275,9 @@ function generateArchitectureInsights(workflowType, complexity, patterns) {
   }
   if (patterns.includes('custom-tool-development')) {
     insights.push('Includes custom tool development requiring @tool decorator patterns');
+  }
+  if (patterns.includes('mcp-integration')) {
+    insights.push('Includes MCP (Model Context Protocol) server integration for external tools');
   }
   
   return insights;
