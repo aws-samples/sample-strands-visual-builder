@@ -32,19 +32,19 @@ class CodeGenerationService:
     # ------------------------------------------------------------------
 
     def generate_code_freeform(self, config, model_id: str = None, advanced_config: dict = None, request_id: str = None, stream: bool = False):
-        """Generate code using AgentCore expert agent with local fallback"""
+        """Generate code using AgentCore expert agent (no local fallback)"""
         try:
             if model_id:
                 logger.info(f"Extracted model_id from payload: {model_id}")
 
-            # Try AgentCore expert agent first
+            # Use AgentCore expert agent — no local fallback
             agentcore_result = self._try_agentcore_expert_agent(config, model_id, advanced_config, request_id, stream)
             if agentcore_result:
                 logger.info("Used AgentCore expert agent successfully")
                 return agentcore_result
 
-            # Fallback to local agent
-            logger.info("Falling back to local expert agent")
+            # AgentCore failed — return error instead of falling back to local agent
+            raise RuntimeError("AgentCore expert agent is unavailable. Please try again in a few minutes.")
 
             self._lifecycle._ensure_correct_model(model_id)
 
@@ -198,7 +198,10 @@ class CodeGenerationService:
                 retries={'max_attempts': 2}
             )
 
-            runtime_client = boto3.client('bedrock-agentcore', config=boto_config)
+            # Extract region from ARN to ensure correct region
+            arn_parts = expert_agent_arn.split(':')
+            agent_region = arn_parts[3] if len(arn_parts) > 3 else 'us-west-2'
+            runtime_client = boto3.client('bedrock-agentcore', region_name=agent_region, config=boto_config)
 
             logger.info(f"Invoking AgentCore with session: {session_id}")
             logger.info("⏳ This may take 2-3 minutes for code generation...")
