@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 /**
  * Python Execution Utilities for Strands Visual Builder - Prototype A
  * Handles execution of generated Python code with real subprocess execution

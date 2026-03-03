@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 /**
  * Expert Agent Code Generator 
  * This generator uses the Strands expert agent service to generate production-ready code
@@ -5,6 +8,7 @@
 
 import { extractStructuredConfig, validateConfiguration } from './configExtractor';
 import expertAgentService from '../services/expertAgentService';
+import { authService } from '../services/authService.js';
 
 export async function generateCodeWithExpertAgent(nodes, edges, settings = null, config = null, enableStreaming = false, onProgress = null) {
   try {
@@ -405,7 +409,16 @@ export function getAvailableModels() {
 export async function getAvailableTools() {
   try {
     const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
-    const response = await fetch(`${apiBaseUrl}/api/available-tools`);
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const token = await authService.getToken();
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+    } catch (error) {
+      console.warn('Failed to get auth token for available-tools request');
+    }
+    const response = await fetch(`${apiBaseUrl}/api/available-tools`, { headers });
     const data = await response.json();
     
     if (data.success) {

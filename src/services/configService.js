@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 /**
  * Configuration service that loads settings from the backend API
  * instead of environment variables. This eliminates the need for

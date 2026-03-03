@@ -1,9 +1,14 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 """
 S3 Code Storage router for fetching generated code files
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 import logging
+from models.api_models import User
 from services.s3_code_storage_service import S3CodeStorageService
+from services.auth_service import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/s3-code", tags=["s3-code"])
@@ -12,22 +17,22 @@ router = APIRouter(prefix="/api/s3-code", tags=["s3-code"])
 s3_service = S3CodeStorageService()
 
 @router.get("/{session_id}/{code_type}")
-async def get_code_file(session_id: str, code_type: str):
+async def get_code_file(session_id: str, code_type: str, current_user: User = Depends(get_current_user)):
     """
     Fetch code file from S3 temporary storage
     
     Args:
         session_id: Session identifier
-        code_type: Type of code ('pure_strands', 'agentcore_ready', or 'requirements')
+        code_type: Type of code ('pure_strands', 'agentcore_ready', 'mcp_server', or 'requirements')
     """
     try:
         logger.info("Fetching code file")
         
         # Validate code_type
-        if code_type not in ['pure_strands', 'agentcore_ready', 'requirements']:
+        if code_type not in ['pure_strands', 'agentcore_ready', 'mcp_server', 'requirements']:
             raise HTTPException(
                 status_code=400, 
-                detail=f"Invalid code_type: {code_type}. Must be 'pure_strands', 'agentcore_ready', or 'requirements'"
+                detail=f"Invalid code_type: {code_type}. Must be 'pure_strands', 'agentcore_ready', 'mcp_server', or 'requirements'"
             )
         
         # Get code file from S3
@@ -57,7 +62,7 @@ async def get_code_file(session_id: str, code_type: str):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/{session_id}")
-async def list_session_files(session_id: str):
+async def list_session_files(session_id: str, current_user: User = Depends(get_current_user)):
     """
     List all code files for a session
     
@@ -89,7 +94,7 @@ async def list_session_files(session_id: str):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.delete("/{session_id}")
-async def delete_session_files(session_id: str):
+async def delete_session_files(session_id: str, current_user: User = Depends(get_current_user)):
     """
     Delete all code files for a session
     

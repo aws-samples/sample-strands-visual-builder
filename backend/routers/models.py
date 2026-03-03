@@ -1,12 +1,17 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 """
 Models router for fetching available Bedrock models
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 import boto3
 import logging
 from typing import Dict, Any
+from models.api_models import User
 from services.config_service import config_service
 from services.model_id_service import model_id_service
+from services.auth_service import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["models"])
@@ -41,7 +46,7 @@ def _supports_prompt_caching(model_id: str) -> bool:
     return any(pattern in model_id for pattern in caching_patterns)
 
 @router.get("/available-models")
-async def get_available_models():
+async def get_available_models(current_user: User = Depends(get_current_user)):
     """Get list of available Bedrock models"""
     
     try:

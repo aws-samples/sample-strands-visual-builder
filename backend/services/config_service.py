@@ -1,3 +1,6 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 """
 Configuration service that reads from AWS SSM Parameters instead of .env files.
 Automatically detects the current AWS account and loads the appropriate configuration.
@@ -5,8 +8,8 @@ Automatically detects the current AWS account and loads the appropriate configur
 
 import boto3
 import logging
+import time
 from typing import Dict, Optional
-from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +29,8 @@ class ConfigService:
         self._sts_client = None
         self._account_id = None
         self._config_cache = {}
+        self._cache_timestamp = 0
+        self._cache_ttl = 300  # 5 minutes
         
     @property
     def ssm_client(self):
@@ -61,12 +66,15 @@ class ConfigService:
         """Base path for all SSM parameters"""
         return f"/strands-visual-builder/{self.account_id}"
     
-    @lru_cache(maxsize=1)
     def get_all_config(self) -> Dict[str, str]:
         """
         Get all configuration parameters from SSM.
-        Results are cached for performance.
+        Results are cached with a 5-minute TTL to handle deployment ordering.
         """
+        now = time.time()
+        if self._config_cache and (now - self._cache_timestamp) < self._cache_ttl:
+            return self._config_cache
+        
         try:
             logger.info("Loading configuration from SSM")
             
@@ -95,6 +103,8 @@ class ConfigService:
             
             logger.info("Configuration loaded successfully")
             
+            self._config_cache = config
+            self._cache_timestamp = now
             return config
             
         except Exception as e:

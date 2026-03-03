@@ -1,3 +1,6 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 """
 Simple settings module that reads from SSM via config_service
 This maintains compatibility with existing code while using SSM backend

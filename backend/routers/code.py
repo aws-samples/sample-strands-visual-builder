@@ -1,3 +1,6 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 """
 Code generation router for Strands agent code generation
 """
@@ -68,7 +71,8 @@ async def generate_code(config: EnhancedVisualConfig, current_user: User = Depen
                 'runtime_model_switching': config.bedrock_config.runtime_model_switching,
                 'temperature': config.bedrock_config.temperature,
                 # Remove max_tokens to allow full model capacity
-                'top_p': config.bedrock_config.top_p
+                'top_p': config.bedrock_config.top_p,
+                'thinking_budget_tokens': config.bedrock_config.thinking_budget_tokens
             }
         
         # Use free-form generation approach (default)
@@ -90,17 +94,68 @@ async def generate_code(config: EnhancedVisualConfig, current_user: User = Depen
             def stream_generator():
                 logger.info("🌊 Router stream_generator started")
                 chunk_count = 0
+                
+                # Send immediate keepalive so CloudFront gets first byte fast
+                # SSE comments (lines starting with ':') are ignored by EventSource clients
+                yield ": keepalive\n\n"
+                yield "data: [STATUS]Connecting to expert agent...\n\n"
+                logger.info("🏓 Sent initial keepalive to prevent CloudFront timeout")
+                
                 try:
-                    # Handle sync generator from agent service
-                    for chunk in generator:
-                        chunk_count += 1
-                        # DEBUG: Uncomment for router streaming debugging
-                        # logger.info(f"📡 Router yielding chunk {chunk_count}: {len(str(chunk))} chars - '{str(chunk)[:50]}{'...' if len(str(chunk)) > 50 else ''}'")
-                        # Agent service now yields complete SSE lines - no need to wrap again
-                        yield chunk
+                    import threading
+                    import queue
+                    import time
+                    
+                    # Use a thread to run the blocking generator, feeding chunks into a queue
+                    chunk_queue = queue.Queue()
+                    SENTINEL = object()  # Marks end of stream
+                    
+                    def producer():
+                        try:
+                            for chunk in generator:
+                                chunk_queue.put(chunk)
+                            chunk_queue.put(SENTINEL)
+                        except Exception as e:
+                            chunk_queue.put(e)
+                    
+                    producer_thread = threading.Thread(target=producer, daemon=True)
+                    producer_thread.start()
+                    
+                    # Consumer: pull chunks with timeout, send keepalives when idle
+                    first_chunk_received = False
+                    status_sent_analyzing = False
+                    
+                    while True:
+                        try:
+                            item = chunk_queue.get(timeout=25)  # Wait up to 25s for a chunk
+                            if item is SENTINEL:
+                                break
+                            if isinstance(item, Exception):
+                                raise item
+                            
+                            # Send status on first real chunk
+                            if not first_chunk_received:
+                                first_chunk_received = True
+                                yield "data: [STATUS]Generating code...\n\n"
+                            
+                            chunk_count += 1
+                            yield item
+                        except queue.Empty:
+                            # No chunk in 25s — send keepalive + contextual status
+                            yield ": keepalive\n\n"
+                            if not first_chunk_received:
+                                if not status_sent_analyzing:
+                                    yield "data: [STATUS]Expert agent is analyzing your design...\n\n"
+                                    status_sent_analyzing = True
+                                else:
+                                    yield "data: [STATUS]Still working — generating and testing code...\n\n"
+                            logger.info("🏓 Sent keepalive while waiting for AgentCore")
+                    
+                    yield "data: [STATUS]Code generation complete!\n\n"
                     logger.info(f"✅ Router streaming completed with {chunk_count} chunks")
                 except Exception as e:
                     logger.error(f"❌ Router streaming error: {e}")
+                    yield "data: [STATUS]Error during code generation\n\n"
                     import traceback
                     traceback.print_exc()
                     raise

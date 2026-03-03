@@ -1,11 +1,16 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 """
 Configuration API router - provides frontend configuration from SSM parameters
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from typing import Dict, Any
 import logging
+from models.api_models import User
 from services.config_service import config_service
+from services.auth_service import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +58,7 @@ async def get_frontend_config() -> Dict[str, Any]:
         )
 
 @router.get("/config/health")
-async def get_config_health() -> Dict[str, Any]:
+async def get_config_health(current_user: User = Depends(get_current_user)) -> Dict[str, Any]:
     """
     Health check for configuration service.
     

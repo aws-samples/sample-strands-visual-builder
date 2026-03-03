@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 import React, { useState, useEffect } from 'react';
 import {
   Container,
@@ -15,6 +18,7 @@ import {
 import CodeGenerationPanel from './CodeGenerationPanel';
 import ToolInfoModal from './ToolInfoModal';
 import modelsService from '../services/modelsService';
+import authService from '../services/authService';
 
 export default function PropertyPanel({ selectedNode, onNodeUpdate }) {
   const [formData, setFormData] = useState({
@@ -26,7 +30,11 @@ export default function PropertyPanel({ selectedNode, onNodeUpdate }) {
     name: '',
     type: '',
     description: '',
-    parameters: ''
+    parameters: '',
+    configuration: '',
+    gatewayId: '',
+    endpoint: '',
+    region: ''
   });
 
   // Code generation panel state
@@ -41,6 +49,10 @@ export default function PropertyPanel({ selectedNode, onNodeUpdate }) {
   const [modelsError, setModelsError] = useState(null);
   const [modelsWarning, setModelsWarning] = useState(null);
 
+  // Gateway list state
+  const [gatewayOptions, setGatewayOptions] = useState([]);
+  const [gatewaysLoading, setGatewaysLoading] = useState(false);
+
   useEffect(() => {
     if (selectedNode) {
       setFormData({
@@ -52,7 +64,11 @@ export default function PropertyPanel({ selectedNode, onNodeUpdate }) {
         name: selectedNode.data.name || '',
         type: selectedNode.data.type || '',
         description: selectedNode.data.description || '',
-        parameters: selectedNode.data.parameters ? JSON.stringify(selectedNode.data.parameters, null, 2) : ''
+        parameters: selectedNode.data.parameters ? JSON.stringify(selectedNode.data.parameters, null, 2) : '',
+        configuration: selectedNode.data.configuration || '',
+        gatewayId: selectedNode.data.gatewayId || '',
+        endpoint: selectedNode.data.endpoint || '',
+        region: selectedNode.data.region || 'us-west-2'
       });
     }
   }, [selectedNode]);
@@ -61,6 +77,13 @@ export default function PropertyPanel({ selectedNode, onNodeUpdate }) {
   useEffect(() => {
     if (selectedNode?.type === 'agent') {
       loadAvailableModels();
+    }
+  }, [selectedNode?.type]);
+
+  // Load available gateways when gateway node is selected
+  useEffect(() => {
+    if (selectedNode?.type === 'gateway') {
+      loadAvailableGateways();
     }
   }, [selectedNode?.type]);
 
@@ -110,6 +133,32 @@ export default function PropertyPanel({ selectedNode, onNodeUpdate }) {
       setModelOptions([]);
     } finally {
       setModelsLoading(false);
+    }
+  };
+
+  const loadAvailableGateways = async () => {
+    try {
+      setGatewaysLoading(true);
+      const token = await authService.getToken();
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+      const headers = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      const response = await fetch(`${baseUrl}/api/gateway-management/list`, { headers });
+      if (response.ok) {
+        const data = await response.json();
+        setGatewayOptions((data.gateways || []).map(gw => ({
+          label: gw.name || gw.gateway_id,
+          value: gw.gateway_id,
+          description: gw.status || '',
+          endpoint: gw.endpoint || ''
+        })));
+      }
+    } catch (error) {
+      console.error('Error loading gateways:', error);
+    } finally {
+      setGatewaysLoading(false);
     }
   };
 
@@ -170,6 +219,17 @@ export default function PropertyPanel({ selectedNode, onNodeUpdate }) {
         }
       }
       
+      // Update MCP server-specific fields
+      if (selectedNode.type === 'mcpServer') {
+        updatedData.configuration = formData.configuration || '';
+      }
+
+      // Update gateway-specific fields
+      if (selectedNode.type === 'gateway') {
+        updatedData.gatewayId = formData.gatewayId || '';
+        updatedData.endpoint = formData.endpoint || '';
+        updatedData.region = formData.region || 'us-west-2';
+      }
 
       onNodeUpdate(selectedNode.id, updatedData);
     }
@@ -344,6 +404,89 @@ export default function PropertyPanel({ selectedNode, onNodeUpdate }) {
                   onChange={({ detail }) => handleInputChange('parameters', detail.value)}
                   placeholder='{"key": "value"}'
                   rows={4}
+                />
+              </FormField>
+            </React.Fragment>
+          )}
+
+          {selectedNode.type === 'mcpServer' && (
+            <React.Fragment key="mcp-fields">
+              <Alert
+                type="warning"
+                dismissible={false}
+              >
+                MCP servers can execute external code. Please ensure this is a trusted MCP server.
+              </Alert>
+
+              <FormField 
+                key="mcp-config-field" 
+                label="Server Configuration" 
+                description="JSON configuration for MCP server (stdio or HTTP)"
+              >
+                <Textarea
+                  value={formData.configuration}
+                  onChange={({ detail }) => handleInputChange('configuration', detail.value)}
+                  placeholder={`Example stdio config:
+{
+  "command": "uvx",
+  "args": ["awslabs.aws-documentation-mcp-server@latest"]
+}
+
+Example HTTP config:
+{
+  "url": "http://localhost:8000/mcp"
+}`}
+                  rows={8}
+                />
+              </FormField>
+            </React.Fragment>
+          )}
+
+          {selectedNode.type === 'gateway' && (
+            <React.Fragment key="gateway-fields">
+              <FormField
+                key="gateway-select-field"
+                label={
+                  <SpaceBetween direction="horizontal" size="xs">
+                    <span>Gateway</span>
+                    {gatewaysLoading && (
+                      <StatusIndicator type="loading">Loading...</StatusIndicator>
+                    )}
+                  </SpaceBetween>
+                }
+                description="Select an AgentCore Gateway from your account"
+              >
+                <Select
+                  selectedOption={
+                    gatewayOptions.find(opt => opt.value === formData.gatewayId) || null
+                  }
+                  onChange={({ detail }) => {
+                    const selected = detail.selectedOption;
+                    handleInputChange('gatewayId', selected.value);
+                    handleInputChange('label', selected.label);
+                    if (selected.endpoint) {
+                      handleInputChange('endpoint', selected.endpoint);
+                    }
+                  }}
+                  options={gatewayOptions}
+                  placeholder={gatewaysLoading ? "Loading gateways..." : "Select a gateway"}
+                  filteringType="auto"
+                  expandToViewport={true}
+                  disabled={gatewaysLoading}
+                />
+              </FormField>
+
+              {formData.endpoint && (
+                <FormField key="gateway-endpoint-field" label="Endpoint URL">
+                  <Input value={formData.endpoint} readOnly disabled />
+                </FormField>
+              )}
+
+              <FormField key="gateway-region-field" label="Region">
+                <Input
+                  value={formData.region}
+                  onChange={({ detail }) => handleInputChange('region', detail.value)}
+                  placeholder="us-west-2"
                 />
               </FormField>
             </React.Fragment>

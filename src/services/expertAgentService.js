@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 /**
  * Expert Agent Service - Client for communicating with Strands expert agent backend
  * This service handles all communication with the FastAPI backend that hosts the expert agent
@@ -8,7 +11,7 @@ import { authService } from './authService.js';
 class ExpertAgentService {
   constructor(baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080') {
     this.baseUrl = baseUrl;
-    this.defaultTimeout = 120000; // Default 2 minute timeout for code generation
+    this.defaultTimeout = 600000; // Default 2 minute timeout for code generation
     this.settingsProvider = null; // Will be set by the component using this service
   }
 
@@ -65,14 +68,15 @@ class ExpertAgentService {
       if (advancedConfig || this.settingsProvider?.settings) {
         const settings = this.settingsProvider?.settings || {};
         const bedrockConfig = advancedConfig || {
-          model_id: expertAgentModel || settings.expertAgentModel || settings.runtimeSelectedModel,
+          model_id: expertAgentModel || settings.expertAgentModel || settings.runtimeSelectedModel ,
           // Free-form generation is now the default approach
           enable_reasoning: true,       // Always enabled for better code quality
           enable_prompt_caching: settings.enablePromptCaching || false,
           runtime_model_switching: settings.runtimeModelConfiguration || false,
           temperature: 0.3,
           max_tokens: 4000,
-          top_p: 0.9
+          top_p: 0.9,
+          thinking_budget_tokens: settings.thinkingBudgetTokens || 0
         };
 
         enhancedConfig.bedrock_config = bedrockConfig;
@@ -148,13 +152,14 @@ class ExpertAgentService {
       if (advancedConfig || this.settingsProvider?.settings) {
         const settings = this.settingsProvider?.settings || {};
         const bedrockConfig = advancedConfig || {
-          model_id: expertAgentModel || settings.expertAgentModel || settings.runtimeSelectedModel,
+          model_id: expertAgentModel || settings.expertAgentModel || settings.runtimeSelectedModel ,
           enable_reasoning: true,
           enable_prompt_caching: settings.enablePromptCaching || false,
           runtime_model_switching: settings.runtimeModelConfiguration || false,
           temperature: 0.3,
           max_tokens: 4000,
-          top_p: 0.9
+          top_p: 0.9,
+          thinking_budget_tokens: settings.thinkingBudgetTokens || 0
         };
 
         enhancedConfig.bedrock_config = bedrockConfig;
@@ -182,12 +187,19 @@ class ExpertAgentService {
         throw new Error(JSON.stringify(errorData.detail) || `HTTP error! status: ${response.status}`);
       }
 
+      // Set a streaming timeout — abort if no [FINAL] received within the timeout period
+      const streamingTimeoutId = setTimeout(() => {
+        console.warn('⏰ Streaming timeout — aborting after', timeout, 'ms');
+        controller.abort();
+      }, timeout);
+
       // Handle SSE streaming response - matches backend format
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let fullResponse = '';
       let buffer = '';
 
+      try {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -204,6 +216,13 @@ class ExpertAgentService {
             
             if (chunk === '[DONE]') {
               break;
+            } else if (chunk.startsWith('[STATUS]')) {
+              // Status update — pass to progress callback as second arg
+              const statusMessage = chunk.slice(8); // Remove "[STATUS]" prefix
+              if (onProgress) {
+                onProgress(fullResponse, statusMessage);
+              }
+              continue; // Don't add to fullResponse
             } else if (chunk.startsWith('[FINAL]')) {
               // Handle final metadata with real request_id
               try {
@@ -231,6 +250,9 @@ class ExpertAgentService {
             }
           }
         }
+      }
+      } finally {
+        clearTimeout(streamingTimeoutId);
       }
 
       // If we reach here without getting [FINAL] message, return basic response

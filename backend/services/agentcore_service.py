@@ -1,3 +1,6 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 """
 AgentCore Deployment Service
 
@@ -169,7 +172,7 @@ class AgentCoreDeploymentService:
         
         return fixed_content
     
-    async def deploy_agent(self, strands_code: str, config: DeploymentConfig, requirements_txt: str = None) -> str:
+    async def deploy_agent(self, strands_code: str, config: DeploymentConfig, requirements_txt: str = None, deployment_type: str = "agent", mcp_server_code: str = None) -> str:
         """Deploy Strands agent to AgentCore and return agent ARN directly"""
         try:
             logger.info("Starting agent deployment")
@@ -193,9 +196,23 @@ class AgentCoreDeploymentService:
             temp_path.mkdir(exist_ok=True)
             
             try:
-                # Write expert code directly without transformation
-                agent_file = temp_path / "agent.py"
-                agent_file.write_text(strands_code)
+                # Write code files based on deployment type
+                if deployment_type == "mcp":
+                    # For MCP deployment, use the MCP server code as entrypoint
+                    if not mcp_server_code:
+                        raise Exception("MCP server code is required for MCP deployment")
+                    
+                    # Write MCP server code as main entrypoint
+                    agent_file = temp_path / "mcp_server.py"
+                    agent_file.write_text(mcp_server_code)
+                    
+                    # Also write the base Strands code for reference
+                    strands_file = temp_path / "agent.py"
+                    strands_file.write_text(strands_code)
+                else:
+                    # For agent deployment, use the Strands code directly
+                    agent_file = temp_path / "agent.py"
+                    agent_file.write_text(strands_code)
                 
                 # Write requirements with explicit UTF-8 encoding and Unix line endings
                 requirements_file = temp_path / "requirements.txt"
@@ -213,25 +230,56 @@ class AgentCoreDeploymentService:
                     f.write(requirements_content)
                 
                 # CRITICAL: Change to temp directory before configure
-                # Toolkit needs relative paths, not absolute paths
+                # Toolkit needs relative paths, not absolute paths with temp dir name
                 original_cwd = Path.cwd()
                 os.chdir(temp_path)
                 logger.info(f"Changed working directory to: {temp_path}")
                 
                 # Configure deployment with basic parameters
+                # NOTE: For container mode, toolkit auto-generates Dockerfile with UV base image
+                # Do NOT create custom Dockerfile - let toolkit handle it
                 sanitized_agent_name = self._sanitize_agent_name(config.agent_name)
                 namespaced_agent_name = self._add_app_suffix(sanitized_agent_name)
                 logger.info(f"Configuring agent deployment with suffix: {namespaced_agent_name}")
                 
                 try:
-                    configure_result = self.runtime.configure(
-                        entrypoint=agent_file.name,  # Relative path
-                        agent_name=namespaced_agent_name,
-                        requirements_file=requirements_file.name,  # Relative path
-                        deployment_type="container",  # Toolkit auto-generates Dockerfile
-                        auto_create_execution_role=True,
-                        region=config.region
-                    )
+                    # Configure deployment with protocol-specific settings
+                    # Use container deployment to get UV/UVX support automatically
+                    # Use RELATIVE paths since we're in the temp directory
+                    configure_params = {
+                        "entrypoint": agent_file.name,  # Just filename, not full path
+                        "agent_name": namespaced_agent_name,  # Now has app suffix
+                        "requirements_file": requirements_file.name,  # Just filename, not full path
+                        "deployment_type": "container",  # Toolkit auto-generates Dockerfile with UV base image
+                        "auto_create_execution_role": True,
+                        "region": config.region
+                    }
+                    
+                    # Add protocol flag and OAuth for MCP deployment
+                    if deployment_type == "mcp":
+                        configure_params["protocol"] = "MCP"
+                        
+                        # Get MCP OAuth client credentials (separate from frontend client)
+                        app_config = config_service.get_all_config()
+                        cognito_pool_id = app_config.get('COGNITO_USER_POOL_ID')
+                        cognito_client_id = app_config.get('COGNITO_MCP_CLIENT_ID')  # Use MCP-specific client
+                        
+                        if cognito_pool_id and cognito_client_id:
+                            # Try snake_case parameter name
+                            configure_params["authorizer_configuration"] = {
+                                "customJWTAuthorizer": {
+                                    "discoveryUrl": f"https://cognito-idp.{config.region}.amazonaws.com/{cognito_pool_id}/.well-known/openid-configuration",
+                                    "allowedClients": [cognito_client_id]
+                                }
+                            }
+                            logger.info("Configuring MCP server deployment with OAuth authentication")
+                        else:
+                            logger.warning("Cognito configuration not found - MCP server will deploy without OAuth")
+                            logger.info("Configuring MCP server deployment without OAuth")
+                    else:
+                        logger.info("Configuring agent deployment")
+                    
+                    configure_result = self.runtime.configure(**configure_params)
                     logger.info("Configuration completed")
                 except Exception as e:
                     logger.error(f"Configuration failed: {str(e)}")
@@ -243,7 +291,16 @@ class AgentCoreDeploymentService:
                 # Launch deployment (this is synchronous and waits for completion)
                 try:
                     logger.info("Starting AgentCore deployment")
-                    launch_result = self.runtime.launch(auto_update_on_conflict=True)
+                    
+                    # Pass environment variables to AgentCore runtime
+                    env_vars = config.environment_variables if config.environment_variables else {}
+                    if env_vars:
+                        logger.info(f"Setting {len(env_vars)} environment variables for AgentCore runtime")
+                        launch_result = self.runtime.launch(env_vars=env_vars, auto_update_on_conflict=True)
+                    else:
+                        logger.info("No environment variables provided, launching with defaults")
+                        launch_result = self.runtime.launch(auto_update_on_conflict=True)
+                    
                     logger.info("Launch completed")
                 except Exception as e:
                     logger.error(f"Launch failed: {str(e)}")
@@ -257,15 +314,62 @@ class AgentCoreDeploymentService:
                 agent_arn = launch_result.agent_arn
                 logger.info("Successfully deployed agent")
                 
-                # Return the ARN directly since deployment is complete
+                # For MCP deployments, return ARN with MCP client integration details
+                if deployment_type == "mcp":
+                    app_config = config_service.get_all_config()
+                    cognito_domain = app_config.get('COGNITO_DOMAIN')
+                    cognito_client_id = app_config.get('COGNITO_MCP_CLIENT_ID')  
+                    
+                    logger.info(f"Cognito config - domain: {cognito_domain}, client_id: {cognito_client_id}")
+                    logger.info(f"Available config keys: {list(app_config.keys())}")
+                    
+                    result = {
+                        "agent_arn": agent_arn,
+                        "deployment_type": "mcp",
+                        "mcp_oauth_config": None
+                    }
+                    
+                    # Add MCP OAuth config if Cognito is configured
+                    if cognito_domain and cognito_client_id:
+                        # URL-encode the ARN for MCP server URL (per AWS sample)
+                        encoded_arn = agent_arn.replace(':', '%3A').replace('/', '%2F')
+                        
+                        # Get MCP OAuth client secret (required for MCP client OAuth config)
+                        cognito_client_secret = app_config.get('COGNITO_MCP_CLIENT_SECRET')
+                        logger.info("MCP OAuth configuration prepared")
+                        
+                        mcp_oauth_config = {
+                            "mcp_server_url": f"https://bedrock-agentcore.{config.region}.amazonaws.com/runtimes/{encoded_arn}/invocations?qualifier=DEFAULT",
+                            "auth_type": "Custom user based OAuth",
+                            "authorization_url": f"https://{cognito_domain}.auth.{config.region}.amazoncognito.com/oauth2/authorize",
+                            "token_url": f"https://{cognito_domain}.auth.{config.region}.amazoncognito.com/oauth2/token",
+                            "client_id": cognito_client_id,
+                            "scopes": ["openid", "profile"]
+                        }
+                        
+                        # Add client secret reference (don't expose actual secret in API response)
+                        if cognito_client_secret:
+                            mcp_oauth_config["client_secret"] = "***configured***"
+                            mcp_oauth_config["note"] = "✅ OAuth credentials configured. Retrieve client secret from AWS Console > Cognito > App clients."
+                        else:
+                            mcp_oauth_config["client_secret"] = "NOT_CONFIGURED"
+                            mcp_oauth_config["note"] = "⚠️ Run 'cdk deploy' to create MCP OAuth client with secret"
+                        
+                        result["mcp_oauth_config"] = mcp_oauth_config
+                        logger.info("MCP OAuth integration details included in response")
+                    
+                    return result
+                
+                # Return the ARN directly for agent deployments
                 return agent_arn
                 
             finally:
                 # Restore original working directory
                 try:
                     os.chdir(original_cwd)
-                except Exception:
-                    pass
+                    logger.info(f"Restored working directory to: {original_cwd}")
+                except Exception as cwd_error:
+                    logger.warning(f"Failed to restore working directory: {cwd_error}")
                 
                 # Cleanup temporary files
                 try:
@@ -277,8 +381,8 @@ class AgentCoreDeploymentService:
                     logger.warning("Failed to cleanup temporary directory")
                 
         except Exception as e:
-            logger.error("Deployment failed")
-            raise Exception("AgentCore deployment failed")
+            logger.error(f"Deployment failed: {e}", exc_info=True)
+            raise Exception(f"AgentCore deployment failed: {e}")
     
 
 
@@ -292,9 +396,13 @@ class AgentCoreDeploymentService:
             if not self.control_client:
                 return None
                 
+            # Extract agent runtime ID from ARN
+            # ARN format: arn:aws:bedrock-agentcore:region:account:runtime/agent-id
+            agent_runtime_id = agent_runtime_arn.split('/')[-1] if '/' in agent_runtime_arn else agent_runtime_arn
+            
             # Get agent runtime (single API call)
             response = self.control_client.get_agent_runtime(
-                agentRuntimeArn=agent_runtime_arn
+                agentRuntimeId=agent_runtime_id
             )
             runtime = response.get('agentRuntime')
             
@@ -382,7 +490,26 @@ class AgentCoreDeploymentService:
         return is_authorized
 
     async def _validate_agent_access(self, agent_runtime_arn: str) -> bool:
-        """Validate that the agent was created by Strands Visual Builder (with API call)"""
+        """Validate that the agent was created by Strands Visual Builder.
+        
+        Uses fast ARN pattern matching first (no API call needed).
+        Falls back to API call only if pattern doesn't match but agent might still be valid.
+        """
+        # Extract agent ID from ARN
+        # ARN format: arn:aws:bedrock-agentcore:region:account:runtime/agent-id
+        agent_id = agent_runtime_arn.split('/')[-1] if '/' in agent_runtime_arn else agent_runtime_arn
+        
+        # Fast path: check naming pattern directly from ARN (zero API calls)
+        if '_svbui_a7f3' in agent_id:
+            logger.info(f"Agent validated via naming pattern: {agent_id}")
+            return True
+        
+        # Backward compatibility: check legacy naming patterns
+        if agent_id.startswith(('strands', 'agent_', 'expert_agent')):
+            logger.info(f"Agent validated via legacy naming pattern: {agent_id}")
+            return True
+        
+        # If no pattern match, try API call to check tags
         try:
             if not self.control_client:
                 self._initialize_clients()
@@ -391,7 +518,7 @@ class AgentCoreDeploymentService:
                 return False
                 
             response = self.control_client.get_agent_runtime(
-                agentRuntimeArn=agent_runtime_arn
+                agentRuntimeId=agent_id
             )
             
             runtime = response.get('agentRuntime', {})

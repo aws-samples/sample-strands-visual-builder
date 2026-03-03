@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 import React from 'react';
 import { Handle, Position } from 'reactflow';
 import { Box, Badge, SpaceBetween, Popover } from '@cloudscape-design/components';

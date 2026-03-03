@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -226,17 +229,6 @@ export class FoundationStack extends cdk.Stack {
       }
     }));
 
-    // =============================================================================
-    // CUSTOM CODE INTERPRETER EXECUTION ROLE
-    // =============================================================================
-
-    // IAM role for custom code interpreter execution
-    const codeInterpreterExecutionRole = new iam.Role(this, 'CodeInterpreterExecutionRole', {
-      roleName: `strands-code-interpreter-execution-role-${this.account}`,
-      assumedBy: new iam.ServicePrincipal('bedrock-agentcore.amazonaws.com'),
-      description: 'Execution role for custom AgentCore Code Interpreter',
-    });
-
     // X-Ray and CloudWatch observability permissions (required by AgentCore runtime)
     this.agentCoreExecutionRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
@@ -259,6 +251,17 @@ export class FoundationStack extends cdk.Stack {
         },
       },
     }));
+
+    // =============================================================================
+    // CUSTOM CODE INTERPRETER EXECUTION ROLE
+    // =============================================================================
+
+    // IAM role for custom code interpreter execution
+    const codeInterpreterExecutionRole = new iam.Role(this, 'CodeInterpreterExecutionRole', {
+      roleName: `strands-code-interpreter-execution-role-${this.account}`,
+      assumedBy: new iam.ServicePrincipal('bedrock-agentcore.amazonaws.com'),
+      description: 'Execution role for custom AgentCore Code Interpreter',
+    });
 
     // Grant basic execution permissions for code interpreter
     codeInterpreterExecutionRole.addManagedPolicy(
@@ -292,6 +295,38 @@ export class FoundationStack extends cdk.Stack {
     }));
 
     // =============================================================================
+    // GATEWAY ROLE PERMISSIONS BOUNDARY
+    // =============================================================================
+
+    // Maximum permissions for gateway roles created by Visual Builder
+    const gatewayRolePermissionsBoundary = new iam.ManagedPolicy(this, 'GatewayRolePermissionsBoundary', {
+      managedPolicyName: `strands-vb-gw-permissions-boundary-${this.account}`,
+      description: 'Maximum permissions for gateway roles created by Visual Builder',
+      statements: [
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: ['lambda:InvokeFunction'],
+          resources: [
+            `arn:aws:lambda:${this.region}:${this.account}:function:strands-*`,
+          ],
+        }),
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
+          resources: [`arn:aws:logs:${this.region}:${this.account}:log-group:/aws/lambda/strands-*`],
+        }),
+      ],
+    });
+
+    // Store in SSM for backend access
+    new ssm.StringParameter(this, 'GatewayPermissionsBoundaryArn', {
+      parameterName: `${parameterBasePath}/gateway/permissions-boundary-arn`,
+      stringValue: gatewayRolePermissionsBoundary.managedPolicyArn,
+      description: 'ARN of the permissions boundary for gateway roles',
+      simpleName: false,
+    });
+
+    // =============================================================================
     // SSM PARAMETERS FOR CROSS-STACK COMMUNICATION
     // =============================================================================
 
@@ -302,29 +337,6 @@ export class FoundationStack extends cdk.Stack {
       description: 'VPC ID for AgentCore connectivity',
       simpleName: false,
     });
-
-    // X-Ray and CloudWatch observability permissions (required by AgentCore runtime)
-    this.agentCoreExecutionRole.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'xray:PutTraceSegments',
-        'xray:PutTelemetryRecords',
-        'xray:GetSamplingRules',
-        'xray:GetSamplingTargets',
-      ],
-      resources: ['*'],
-    }));
-
-    this.agentCoreExecutionRole.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['cloudwatch:PutMetricData'],
-      resources: ['*'],
-      conditions: {
-        StringEquals: {
-          'cloudwatch:namespace': 'bedrock-agentcore',
-        },
-      },
-    }));
 
     const privateSubnetIdsParameter = new ssm.StringParameter(this, 'PrivateSubnetIdsParameter', {
       parameterName: `${parameterBasePath}/vpc/private-subnet-ids`,

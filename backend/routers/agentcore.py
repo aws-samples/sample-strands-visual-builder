@@ -1,3 +1,6 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 """
 AgentCore API Router
 
@@ -32,6 +35,20 @@ class DeployAgentRequest(BaseModel):
     strands_code: str
     config: DeploymentConfig
     requirements_txt: Optional[str] = None
+    deployment_type: str = "agent"  # "agent" or "mcp"
+    mcp_server_code: Optional[str] = None  # Only needed for MCP deployments
+
+
+class McpOAuthConfig(BaseModel):
+    """MCP OAuth configuration for MCP server integration"""
+    mcp_server_url: str
+    auth_type: str
+    authorization_url: str
+    token_url: str
+    client_id: str
+    scopes: list[str]
+    client_secret: Optional[str] = None
+    note: Optional[str] = None
 
 
 class DeployAgentResponse(BaseModel):
@@ -39,6 +56,8 @@ class DeployAgentResponse(BaseModel):
     success: bool
     agent_runtime_arn: str
     message: str
+    deployment_type: Optional[str] = None
+    mcp_oauth_config: Optional[McpOAuthConfig] = None
 
 
 class InvokeAgentRequest(BaseModel):
@@ -71,28 +90,43 @@ class ChatSessionResponse(BaseModel):
 async def deploy_agent(request: DeployAgentRequest, current_user: User = Depends(get_current_user)) -> DeployAgentResponse:
     """Deploy Strands agent to AgentCore - synchronous deployment"""
     try:
-        logger.info(f"AgentCore deployment started - Agent: {request.config.agent_name}")
+        logger.info(f"AgentCore deployment started - Agent: {request.config.agent_name}, Type: {request.deployment_type}")
         
-        # Deploy agent synchronously - this waits for completion and returns ARN
-        agent_runtime_arn = await agentcore_service.deploy_agent(
+        # Deploy agent synchronously - this waits for completion and returns ARN or dict
+        deployment_result = await agentcore_service.deploy_agent(
             request.strands_code,
             request.config,
-            request.requirements_txt
+            request.requirements_txt,
+            request.deployment_type,
+            request.mcp_server_code
         )
         
-        logger.info(f"AgentCore deployment completed - ARN: {agent_runtime_arn}")
+        logger.info(f"AgentCore deployment completed - Result: {deployment_result}")
         
-        return DeployAgentResponse(
-            success=True,
-            agent_runtime_arn=agent_runtime_arn,
-            message="Agent deployed successfully"
-        )
+        # Handle both response formats (string for agents, dict for MCP)
+        if isinstance(deployment_result, dict):
+            # MCP deployment with OAuth config
+            return DeployAgentResponse(
+                success=True,
+                agent_runtime_arn=deployment_result["agent_arn"],
+                message=f"{request.deployment_type.upper()} deployed successfully",
+                deployment_type=deployment_result.get("deployment_type"),
+                mcp_oauth_config=deployment_result.get("mcp_oauth_config")
+            )
+        else:
+            # Agent deployment (string ARN)
+            return DeployAgentResponse(
+                success=True,
+                agent_runtime_arn=deployment_result,
+                message=f"{request.deployment_type.upper()} deployed successfully",
+                deployment_type=request.deployment_type
+            )
         
     except Exception as e:
-        logger.error("Deployment failed")
+        logger.error(f"Deployment failed: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail="Deployment failed"
+            detail=f"Deployment failed: {str(e)}"
         )
 
 
@@ -129,6 +163,16 @@ async def invoke_agent(request: InvokeAgentRequest, current_user: User = Depends
     try:
         logger.info("Invoking agent")
         
+        # Validate agent belongs to Visual Builder
+        try:
+            is_valid = await agentcore_service._validate_agent_access(request.agent_runtime_arn)
+            if not is_valid:
+                raise HTTPException(status_code=403, detail="Access denied: agent not managed by Visual Builder")
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=403, detail="Access denied: agent not managed by Visual Builder")
+        
         result = await agentcore_invocation_service.invoke_agent(
             request.agent_runtime_arn,
             request.message,
@@ -138,6 +182,8 @@ async def invoke_agent(request: InvokeAgentRequest, current_user: User = Depends
         
         return InvokeAgentResponse(**result)
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Agent invocation failed")
         raise HTTPException(
@@ -151,6 +197,16 @@ async def invoke_agent_streaming(request: InvokeAgentRequest, current_user: User
     """Invoke deployed agent with streaming response"""
     try:
         logger.info("Starting streaming invocation")
+        
+        # Validate agent belongs to Visual Builder
+        try:
+            is_valid = await agentcore_service._validate_agent_access(request.agent_runtime_arn)
+            if not is_valid:
+                raise HTTPException(status_code=403, detail="Access denied: agent not managed by Visual Builder")
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=403, detail="Access denied: agent not managed by Visual Builder")
         
         async def event_stream():
             async for chunk in agentcore_invocation_service.invoke_agent_streaming(
@@ -168,11 +224,11 @@ async def invoke_agent_streaming(request: InvokeAgentRequest, current_user: User
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Headers": "Cache-Control"
             }
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Streaming invocation failed")
         raise HTTPException(
@@ -213,7 +269,7 @@ async def get_chat_session(session_id: str, current_user: User = Depends(get_cur
     """Get chat session information"""
     try:
         logger.info("Getting chat session")
-        session = await agentcore_invocation_service.get_chat_session(session_id)
+        session = await agentcore_invocation_service.get_chat_session_for_user(session_id, current_user.email)
         
         if not session:
             raise HTTPException(
@@ -245,7 +301,7 @@ async def get_session_history(session_id: str, current_user: User = Depends(get_
     """Get chat history for a session"""
     try:
         logger.info("Getting session history")
-        messages = await agentcore_invocation_service.get_session_history(session_id)
+        messages = await agentcore_invocation_service.get_session_history(session_id, current_user.email)
         
         return {
             "session_id": session_id,
@@ -274,7 +330,7 @@ async def list_chat_sessions(current_user: User = Depends(get_current_user)):
     """List all active chat sessions"""
     try:
         logger.info("Listing chat sessions")
-        sessions = await agentcore_invocation_service.list_active_sessions()
+        sessions = await agentcore_invocation_service.list_active_sessions(current_user.email)
         
         return {
             "sessions": [
@@ -303,7 +359,7 @@ async def delete_chat_session(session_id: str, current_user: User = Depends(get_
     """Delete a chat session"""
     try:
         logger.info("Deleting chat session")
-        success = await agentcore_invocation_service.delete_session(session_id)
+        success = await agentcore_invocation_service.delete_session(session_id, current_user.email)
         
         if not success:
             raise HTTPException(

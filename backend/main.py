@@ -1,3 +1,6 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 """
 Strands Visual Builder Expert Agent Service
 FastAPI service that hosts a Strands expert agent for code generation
@@ -41,6 +44,8 @@ from routers.config import router as config_router
 from routers.settings import router as settings_router
 from routers.agentcore import router as agentcore_router
 from routers.s3_code import router as s3_code_router
+from routers.gateway_management import router as gateway_management_router
+from routers.gateway import router as gateway_router
 
 # Import models for health endpoint
 from models.api_models import HealthResponse
@@ -72,8 +77,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With"],
 )
 
 # Initialize services
@@ -124,6 +129,8 @@ app.include_router(models_router)
 app.include_router(settings_router)
 app.include_router(agentcore_router)
 app.include_router(s3_code_router)
+app.include_router(gateway_management_router)
+app.include_router(gateway_router)
 
 # Health endpoint for startup verification
 @app.get("/health", response_model=HealthResponse)

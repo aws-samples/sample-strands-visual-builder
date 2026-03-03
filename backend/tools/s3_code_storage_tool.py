@@ -1,3 +1,6 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 """
 S3 Code Storage Tool for Expert Agent
 
@@ -34,7 +37,7 @@ def s3_write_code(session_id: str, code_content: str, code_type: str, file_exten
     Args:
         session_id: Unique session identifier (typically provided by the frontend)
         code_content: The complete code/text content to store
-        code_type: Type of code - must be 'pure_strands', 'agentcore_ready', or 'requirements'
+        code_type: Type of code - must be 'pure_strands', 'agentcore_ready', 'mcp_server', or 'requirements'
         file_extension: File extension to use (default: '.py', use '.txt' for requirements)
         
     Returns:
@@ -74,10 +77,10 @@ def s3_write_code(session_id: str, code_content: str, code_type: str, file_exten
                 "error": "code_content is required and cannot be empty"
             }
         
-        if code_type not in ['pure_strands', 'agentcore_ready', 'requirements']:
+        if code_type not in ['pure_strands', 'agentcore_ready', 'mcp_server', 'requirements']:
             return {
                 "status": "error",
-                "error": f"code_type must be 'pure_strands', 'agentcore_ready', or 'requirements', got: {code_type}"
+                "error": f"code_type must be 'pure_strands', 'agentcore_ready', 'mcp_server', or 'requirements', got: {code_type}"
             }
         
         # Initialize S3 service
@@ -128,6 +131,104 @@ def s3_write_code(session_id: str, code_content: str, code_type: str, file_exten
         }
 
 @tool
+def s3_write_all_code(
+    session_id: str,
+    pure_strands_code: str,
+    agentcore_ready_code: str,
+    mcp_server_code: str,
+    requirements_txt: str
+) -> Dict[str, Any]:
+    """
+    Save all four code files to S3 in a single call.
+
+    Saves pure_strands.py, agentcore_ready.py, mcp_server.py, and requirements.txt
+    to the temporary code S3 bucket. Returns S3 URIs for all files.
+
+    This is the preferred tool for saving generated code — it replaces making
+    four separate s3_write_code calls with one batch operation.
+
+    Args:
+        session_id: Unique session identifier (typically provided by the frontend)
+        pure_strands_code: The pure Strands agent code
+        agentcore_ready_code: The AgentCore-wrapped version
+        mcp_server_code: The FastMCP server version
+        requirements_txt: The requirements.txt content
+
+    Returns:
+        Dictionary containing:
+        - status: 'success' or 'partial' or 'error'
+        - files: Dict mapping code_type to its S3 URI
+        - errors: List of any per-file errors
+    """
+    try:
+        if not session_id or not session_id.strip():
+            return {
+                "status": "error",
+                "error": "session_id is required and cannot be empty"
+            }
+
+        s3_service = S3CodeStorageService()
+
+        files_to_save = [
+            ("pure_strands", pure_strands_code, ".py"),
+            ("agentcore_ready", agentcore_ready_code, ".py"),
+            ("mcp_server", mcp_server_code, ".py"),
+            ("requirements", requirements_txt, ".txt"),
+        ]
+
+        saved_uris = {}
+        errors = []
+
+        for code_type, content, ext in files_to_save:
+            if not content or not content.strip():
+                errors.append(f"{code_type}: empty content, skipped")
+                continue
+
+            result = s3_service.store_code_file(
+                session_id=session_id,
+                code_content=content,
+                code_type=code_type,
+                file_extension=ext
+            )
+
+            if result["status"] == "success":
+                saved_uris[code_type] = result["s3_uri"]
+            else:
+                errors.append(f"{code_type}: {result.get('error', 'Unknown error')}")
+
+        if not saved_uris:
+            return {
+                "status": "error",
+                "content": [{"text": "❌ Failed to save any files to S3"}],
+                "errors": errors,
+            }
+
+        status = "success" if not errors else "partial"
+        content_lines = [{"text": f"✅ Saved {len(saved_uris)}/4 files to S3"}]
+        for code_type, uri in saved_uris.items():
+            content_lines.append({"text": f"  {code_type}: {uri}"})
+        if errors:
+            for err in errors:
+                content_lines.append({"text": f"  ⚠️ {err}"})
+
+        return {
+            "status": status,
+            "content": content_lines,
+            "files": saved_uris,
+            "session_id": session_id,
+            "errors": errors,
+        }
+
+    except Exception as e:
+        logger.error("Unexpected error in s3_write_all_code")
+        return {
+            "status": "error",
+            "content": [{"text": f"❌ Unexpected error saving code to S3: {str(e)}"}],
+            "error": f"Unexpected error: {str(e)}",
+        }
+
+
+@tool
 def s3_read_code(session_id: str, code_type: str) -> Dict[str, Any]:
     """
     Read code content from S3 temporary storage.
@@ -136,7 +237,7 @@ def s3_read_code(session_id: str, code_type: str) -> Dict[str, Any]:
     
     Args:
         session_id: Unique session identifier
-        code_type: Type of code - must be either 'pure_strands' or 'agentcore_ready'
+        code_type: Type of code - must be 'pure_strands', 'agentcore_ready', 'mcp_server', or 'requirements'
         
     Returns:
         Dictionary containing:
@@ -158,10 +259,10 @@ def s3_read_code(session_id: str, code_type: str) -> Dict[str, Any]:
                 "error": "session_id is required and cannot be empty"
             }
         
-        if code_type not in ['pure_strands', 'agentcore_ready', 'requirements']:
+        if code_type not in ['pure_strands', 'agentcore_ready', 'mcp_server', 'requirements']:
             return {
                 "status": "error",
-                "error": f"code_type must be 'pure_strands', 'agentcore_ready', or 'requirements', got: {code_type}"
+                "error": f"code_type must be 'pure_strands', 'agentcore_ready', 'mcp_server', or 'requirements', got: {code_type}"
             }
         
         # Initialize S3 service

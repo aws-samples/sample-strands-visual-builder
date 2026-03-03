@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 import * as cdk from 'aws-cdk-lib';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
@@ -50,7 +53,7 @@ export class AuthStack extends cdk.Stack {
       // selfSignUpEnabled: false already handles this
     });
 
-    // Cognito User Pool Client
+    // Cognito User Pool Client (Frontend - no secret)
     this.userPoolClient = new cognito.UserPoolClient(this, 'StrandsVisualBuilderUserPoolClient', {
       userPool: this.userPool,
       userPoolClientName: 'strands-visual-builder-client',
@@ -60,6 +63,45 @@ export class AuthStack extends cdk.Stack {
       },
       generateSecret: false, // Required for frontend applications
       preventUserExistenceErrors: true,
+    });
+
+    // Cognito User Pool Client for MCP OAuth (with secret)
+    const mcpOAuthClient = new cognito.UserPoolClient(this, 'StrandsVisualBuilderMCPClient', {
+      userPool: this.userPool,
+      userPoolClientName: 'strands-visual-builder-mcp-oauth',
+      authFlows: {
+        userPassword: true,
+        userSrp: true,
+      },
+      generateSecret: true, // Required for MCP OAuth
+      preventUserExistenceErrors: true,
+      oAuth: {
+        flows: {
+          authorizationCodeGrant: true,
+        },
+        scopes: [
+          cognito.OAuthScope.OPENID,
+          cognito.OAuthScope.PROFILE,
+        ],
+        callbackUrls: [
+          'https://us-east-1.quicksight.aws.amazon.com/sn/oauthcallback',  // Default for Amazon QuickSight MCP client — update for your MCP client
+        ],
+        logoutUrls: [
+          'https://us-east-1.quicksight.aws.amazon.com',  // Default for Amazon QuickSight — update for your MCP client
+        ],
+      },
+    });
+
+    // =============================================================================
+    // COGNITO DOMAIN FOR OAUTH (MCP SERVER INTEGRATION)
+    // =============================================================================
+
+    // Add Cognito Domain for OAuth endpoints (required for MCP server integration)
+    const accountId = cdk.Stack.of(this).account;
+    const userPoolDomain = this.userPool.addDomain('StrandsUserPoolDomain', {
+      cognitoDomain: {
+        domainPrefix: `strands-visual-builder-${accountId}` // Must be globally unique
+      }
     });
 
     // =============================================================================
@@ -88,6 +130,29 @@ export class AuthStack extends cdk.Stack {
       simpleName: false,
     });
 
+    const userPoolDomainParameter = new ssm.StringParameter(this, 'UserPoolDomainParameter', {
+      parameterName: `${parameterBasePath}/cognito/domain`,
+      stringValue: userPoolDomain.domainName,
+      description: 'Cognito User Pool Domain for OAuth (MCP server integration)',
+      simpleName: false,
+    });
+
+    // MCP OAuth Client Parameters
+    const mcpClientIdParameter = new ssm.StringParameter(this, 'MCPClientIdParameter', {
+      parameterName: `${parameterBasePath}/cognito/mcp-client-id`,
+      stringValue: mcpOAuthClient.userPoolClientId,
+      description: 'Cognito MCP OAuth Client ID for MCP client integration',
+      simpleName: false,
+    });
+
+    // Store MCP client secret as plain string (will be encrypted at rest by SSM)
+    const mcpClientSecretParameter = new ssm.StringParameter(this, 'MCPClientSecretParameter', {
+      parameterName: `${parameterBasePath}/cognito/mcp-client-secret`,
+      stringValue: mcpOAuthClient.userPoolClientSecret.unsafeUnwrap(),
+      description: 'Cognito MCP OAuth Client Secret for MCP client integration',
+      simpleName: false,
+    });
+
     // =============================================================================
     // OUTPUTS
     // =============================================================================
@@ -108,6 +173,12 @@ export class AuthStack extends cdk.Stack {
       value: this.userPool.userPoolArn,
       description: 'Cognito User Pool ARN for IAM policies',
       exportName: 'StrandsAuth-UserPoolArn',
+    });
+
+    new cdk.CfnOutput(this, 'UserPoolDomain', {
+      value: userPoolDomain.domainName,
+      description: 'Cognito User Pool Domain for OAuth',
+      exportName: 'StrandsAuth-UserPoolDomain',
     });
   }
 }

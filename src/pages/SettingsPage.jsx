@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: MIT-0
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -47,7 +50,8 @@ const SettingsPage = () => {
       expertAgentModel: settings.expertAgentModel,
       enablePromptCaching: settings.enablePromptCaching || false,
       runtimeModelConfiguration: settings.runtimeModelConfiguration || false,
-      runtimeSelectedModel: settings.runtimeSelectedModel || settings.expertAgentModel
+      runtimeSelectedModel: settings.runtimeSelectedModel || settings.expertAgentModel,
+      thinkingBudgetTokens: settings.thinkingBudgetTokens || 0
     });
     setErrors({});
     setHasChanges(false);
@@ -90,7 +94,8 @@ const SettingsPage = () => {
       expertAgentModel: settings.expertAgentModel,
       enablePromptCaching: settings.enablePromptCaching || false,
       runtimeModelConfiguration: settings.runtimeModelConfiguration || false,
-      runtimeSelectedModel: settings.runtimeSelectedModel || settings.expertAgentModel
+      runtimeSelectedModel: settings.runtimeSelectedModel || settings.expertAgentModel,
+      thinkingBudgetTokens: settings.thinkingBudgetTokens || 0
     };
     
     const hasChanged = Object.keys(formData).some(key => 
@@ -124,6 +129,20 @@ const SettingsPage = () => {
     const timeoutFields = ['codeGenerationTimeout', 'pythonExecutionTimeout', 'backendRequestTimeout'];
     if (timeoutFields.includes(field)) {
       const error = validateTimeout(value);
+      setErrors(prev => ({
+        ...prev,
+        [field]: error
+      }));
+    } else if (field === 'thinkingBudgetTokens') {
+      const numValue = parseInt(value);
+      let error = null;
+      if (isNaN(numValue) && value !== '') {
+        error = 'Must be a valid number';
+      } else if (numValue < 0) {
+        error = 'Must be 0 or greater';
+      } else if (numValue > 32768) {
+        error = 'Must be no more than 32768';
+      }
       setErrors(prev => ({
         ...prev,
         [field]: error
@@ -172,7 +191,8 @@ const SettingsPage = () => {
         enableReasoning: true,      // Always enabled for better code quality
         enablePromptCaching: formData.enablePromptCaching,
         runtimeModelConfiguration: formData.runtimeModelConfiguration,
-        runtimeSelectedModel: formData.runtimeSelectedModel
+        runtimeSelectedModel: formData.runtimeSelectedModel,
+        thinkingBudgetTokens: parseInt(formData.thinkingBudgetTokens) || 0
       };
 
       await updateSettings(newSettings);
@@ -198,7 +218,8 @@ const SettingsPage = () => {
       expertAgentModel: defaults.expertAgentModel,
       enablePromptCaching: false,
       runtimeModelConfiguration: false,
-      runtimeSelectedModel: defaults.expertAgentModel
+      runtimeSelectedModel: defaults.expertAgentModel,
+      thinkingBudgetTokens: 0
     };
     
     setFormData(defaultValues);
@@ -492,38 +513,80 @@ const SettingsPage = () => {
           </Header>
         }
       >
-        <FormField
-          label={
-            <SpaceBetween direction="horizontal" size="xs">
-              <span>Prompt Caching</span>
-              <Popover
-                dismissButton={false}
-                position="top"
-                size="medium"
-                triggerType="custom"
-                content={
-                  <div>
-                    <p><strong>Purpose:</strong> Cache system prompts and tools to reduce costs and improve performance.</p>
-                    <p><strong>Benefits:</strong> Significant cost reduction (up to 90%), faster response times, better efficiency.</p>
-                    <p><strong>Compatibility:</strong> Works with Claude 3.5+ models that support prompt caching.</p>
-                    <p><strong>Note:</strong> Most effective for repeated code generation sessions with the same configuration.</p>
-                  </div>
-                }
-              >
-                <Button variant="icon" iconName="status-info" />
-              </Popover>
-            </SpaceBetween>
-          }
-          description="Cache system prompts for cost optimization and performance"
-        >
-          <input
-            type="checkbox"
-            checked={formData.enablePromptCaching || false}
-            onChange={(e) => handleInputChange('enablePromptCaching', e.target.checked)}
-            style={{ transform: 'scale(1.2)' }}
-            disabled={saving}
-          />
-        </FormField>
+        <SpaceBetween direction="vertical" size="l">
+          <FormField
+            label={
+              <SpaceBetween direction="horizontal" size="xs">
+                <span>Prompt Caching</span>
+                <Popover
+                  dismissButton={false}
+                  position="top"
+                  size="medium"
+                  triggerType="custom"
+                  content={
+                    <div>
+                      <p><strong>Purpose:</strong> Cache system prompts and tools to reduce costs and improve performance.</p>
+                      <p><strong>Benefits:</strong> Significant cost reduction (up to 90%), faster response times, better efficiency.</p>
+                      <p><strong>Compatibility:</strong> Works with Claude 3.5+ models that support prompt caching.</p>
+                      <p><strong>Note:</strong> Most effective for repeated code generation sessions with the same configuration.</p>
+                    </div>
+                  }
+                >
+                  <Button variant="icon" iconName="status-info" />
+                </Popover>
+              </SpaceBetween>
+            }
+            description="Cache system prompts for cost optimization and performance"
+          >
+            <input
+              type="checkbox"
+              checked={formData.enablePromptCaching || false}
+              onChange={(e) => handleInputChange('enablePromptCaching', e.target.checked)}
+              style={{ transform: 'scale(1.2)' }}
+              disabled={saving}
+            />
+          </FormField>
+
+          <FormField
+            label={
+              <SpaceBetween direction="horizontal" size="xs">
+                <span>Thinking Budget (tokens)</span>
+                <Popover
+                  dismissButton={false}
+                  position="top"
+                  size="medium"
+                  triggerType="custom"
+                  content={
+                    <div>
+                      <p><strong>Purpose:</strong> Control the maximum number of tokens the model can use for extended thinking and reasoning.</p>
+                      <p><strong>Impact:</strong> Lower values produce faster responses with less reasoning depth. Higher values allow more thorough analysis but take longer.</p>
+                      <p><strong>Default:</strong> 0 means unlimited — the model decides how much thinking to use.</p>
+                    </div>
+                  }
+                >
+                  <Button variant="icon" iconName="status-info" />
+                </Popover>
+              </SpaceBetween>
+            }
+            description="Maximum tokens for model thinking/reasoning. 0 = unlimited. Lower values = faster generation, higher values = more thorough reasoning."
+            errorText={errors.thinkingBudgetTokens}
+          >
+            <Input
+              value={String(formData.thinkingBudgetTokens ?? 0)}
+              onChange={({ detail }) => handleInputChange('thinkingBudgetTokens', detail.value)}
+              placeholder="0"
+              type="number"
+              inputMode="numeric"
+              step={1024}
+              min={0}
+              max={32768}
+              disabled={saving}
+            />
+            <Box variant="small" color="text-body-secondary" margin={{ top: "xs" }}>
+              tokens (0-32768, 0 = unlimited)
+            </Box>
+          </FormField>
+        </SpaceBetween>
       </Container>
     </SpaceBetween>
   );
