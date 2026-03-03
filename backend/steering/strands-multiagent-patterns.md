@@ -33,9 +33,9 @@ orchestrator -> review_agent
 researcher <-> analyst <-> writer <-> reviewer
 ```
 
-### Graph (DAG)
+### Graph
 **Best for:** Deterministic workflows, clear dependencies, parallel processing, complex pipelines
-**Use when:** You need guaranteed execution order and explicit dependency management
+**Use when:** You need guaranteed execution order and explicit dependency management. Supports both acyclic (DAG) and cyclic topologies with feedback loops.
 
 ```python
 # Deterministic execution with dependencies
@@ -135,9 +135,9 @@ result = swarm("Design and implement a microservices architecture for an e-comme
 - `node_timeout`: Per-agent time limit
 - `repetitive_handoff_detection_window`: Prevent ping-pong behavior
 
-### 3. Graph (DAG) Pattern
+### 3. Graph Pattern
 
-Deterministic workflows with dependencies:
+Deterministic workflows with dependencies (supports both acyclic and cyclic topologies):
 
 ```python
 from strands import Agent

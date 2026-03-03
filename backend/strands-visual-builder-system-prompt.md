@@ -54,7 +54,7 @@ PROHIBITED: Creating custom multi-agent approaches when official Strands pattern
 VALIDATION: Your selected pattern must match one of the 4 main patterns in the steering file:
 - Agents as Tools (hub-and-spoke)
 - Sequential Workflow (linear chain)
-- Graph (DAG) (complex dependencies)
+- Graph (complex dependencies, supports cyclic topologies)
 - Swarm (collaborative network)
 
 ## STEERING FILE USAGE
@@ -85,6 +85,7 @@ AgentCore Gateway integration (MANDATORY when Gateway components detected):
 - CRITICAL: Use correct parameters: `endpoint=`, `aws_region=`, `aws_service="bedrock-agentcore"` (NOT `url=`, `region=`)
 - Gateway tools are auto-discovered - use managed pattern: `Agent(tools=[gateway_client])`
 - MUST add `mcp-proxy-for-aws>=0.1.0` to requirements.txt when Gateway is detected
+- MUST add `mcp>=1.0.0` to requirements.txt when MCP server code is generated (ensures @mcp.tool() syntax works)
 
 ## CRITICAL: AgentCore Entrypoint Function Requirements
 
@@ -267,7 +268,7 @@ Step 2: Analyze the visual configuration using analyze_visual_config tool.
 Step 3: Generate ALL FOUR code versions in your response:
 - Pure Strands code (standalone agent)
 - AgentCore-ready code (BedrockAgentCoreApp wrapper + lazy init)
-- MCP server code (FastMCP wrapper + @mcp.tool)
+- MCP server code (FastMCP wrapper + @mcp.tool())
 - requirements.txt (dependency analysis)
 
 Step 4: Test the pure Strands code using code_interpreter. Max 2 calls (test + optional fix).
@@ -322,8 +323,9 @@ REQUIRED RESPONSE STRUCTURE:
    - MANDATORY: Use s3_write_all_code tool to save ALL four files in ONE call
    - Pass pure_strands_code, agentcore_ready_code, mcp_server_code, and requirements_txt
    - CRITICAL: Use `app = BedrockAgentCoreApp()` (empty) in agentcore code - NEVER pass agent parameter
-   - CRITICAL: Use `mcp = FastMCP(host="0.0.0.0", stateless_http=True)` in MCP code
+   - CRITICAL: Use `mcp = FastMCP("Agent Server", host="0.0.0.0", stateless_http=True)` in MCP code
    - CRITICAL: MCP server main block MUST use `mcp.run(transport="streamable-http")`
+   - CRITICAL: MCP tool decorator MUST use `@mcp.tool()` WITH PARENTHESES — `@mcp.tool` without parentheses causes TypeError in MCP SDK 1.0+
    - Return S3 URIs from the response — do NOT re-save or re-validate
    - STOP after returning URIs
 
