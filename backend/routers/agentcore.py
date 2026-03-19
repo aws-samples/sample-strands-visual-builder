@@ -9,10 +9,11 @@ Handles AgentCore deployment and invocation endpoints.
 
 import json
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+import boto3
 
 from services.agentcore_service import (
     agentcore_service, 
@@ -399,6 +400,83 @@ async def list_deployments(current_user: User = Depends(get_current_user)):
 
 
 # Conversation endpoints removed - unused compatibility layer
+
+
+# Region name mapping for friendly display
+REGION_FRIENDLY_NAMES = {
+    'us-east-1': 'US East (N. Virginia)',
+    'us-east-2': 'US East (Ohio)',
+    'us-west-1': 'US West (N. California)',
+    'us-west-2': 'US West (Oregon)',
+    'af-south-1': 'Africa (Cape Town)',
+    'ap-east-1': 'Asia Pacific (Hong Kong)',
+    'ap-south-1': 'Asia Pacific (Mumbai)',
+    'ap-south-2': 'Asia Pacific (Hyderabad)',
+    'ap-southeast-1': 'Asia Pacific (Singapore)',
+    'ap-southeast-2': 'Asia Pacific (Sydney)',
+    'ap-southeast-3': 'Asia Pacific (Jakarta)',
+    'ap-northeast-1': 'Asia Pacific (Tokyo)',
+    'ap-northeast-2': 'Asia Pacific (Seoul)',
+    'ap-northeast-3': 'Asia Pacific (Osaka)',
+    'ca-central-1': 'Canada (Central)',
+    'eu-central-1': 'Europe (Frankfurt)',
+    'eu-central-2': 'Europe (Zurich)',
+    'eu-west-1': 'Europe (Ireland)',
+    'eu-west-2': 'Europe (London)',
+    'eu-west-3': 'Europe (Paris)',
+    'eu-north-1': 'Europe (Stockholm)',
+    'eu-south-1': 'Europe (Milan)',
+    'me-south-1': 'Middle East (Bahrain)',
+    'me-central-1': 'Middle East (UAE)',
+    'sa-east-1': 'South America (São Paulo)',
+}
+
+# Cached regions list (populated on first call)
+_cached_agentcore_regions: Optional[List[Dict[str, str]]] = None
+
+
+@router.get("/regions")
+async def get_supported_regions(current_user: User = Depends(get_current_user)):
+    """Get list of AWS regions where AgentCore is available"""
+    global _cached_agentcore_regions
+
+    if _cached_agentcore_regions is not None:
+        return {"regions": _cached_agentcore_regions}
+
+    try:
+        session = boto3.Session()
+        available = session.get_available_regions('bedrock-agentcore-control')
+
+        regions = []
+        for region_code in sorted(available):
+            friendly = REGION_FRIENDLY_NAMES.get(region_code, region_code)
+            regions.append({"label": friendly, "value": region_code})
+
+        _cached_agentcore_regions = regions
+        return {"regions": regions}
+
+    except Exception as e:
+        logger.warning(f"Failed to discover AgentCore regions dynamically: {e}")
+        # Fallback to known regions from AWS docs
+        fallback = [
+            {"label": "US East (N. Virginia)", "value": "us-east-1"},
+            {"label": "US East (Ohio)", "value": "us-east-2"},
+            {"label": "US West (Oregon)", "value": "us-west-2"},
+            {"label": "Asia Pacific (Mumbai)", "value": "ap-south-1"},
+            {"label": "Asia Pacific (Singapore)", "value": "ap-southeast-1"},
+            {"label": "Asia Pacific (Sydney)", "value": "ap-southeast-2"},
+            {"label": "Asia Pacific (Tokyo)", "value": "ap-northeast-1"},
+            {"label": "Asia Pacific (Seoul)", "value": "ap-northeast-2"},
+            {"label": "Canada (Central)", "value": "ca-central-1"},
+            {"label": "Europe (Frankfurt)", "value": "eu-central-1"},
+            {"label": "Europe (Ireland)", "value": "eu-west-1"},
+            {"label": "Europe (London)", "value": "eu-west-2"},
+            {"label": "Europe (Paris)", "value": "eu-west-3"},
+            {"label": "Europe (Stockholm)", "value": "eu-north-1"},
+            {"label": "South America (São Paulo)", "value": "sa-east-1"},
+        ]
+        _cached_agentcore_regions = fallback
+        return {"regions": fallback}
 
 
 # Health Check
