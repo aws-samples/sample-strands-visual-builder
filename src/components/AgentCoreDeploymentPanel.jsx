@@ -31,8 +31,10 @@ import CodeView from '@cloudscape-design/code-view/code-view';
 import s3CodeService from '../services/s3CodeService';
 import { authService } from '../services/authService.js';
 
-const REGIONS = [
+// Fallback regions if the API call fails
+const FALLBACK_REGIONS = [
   { label: 'US East (N. Virginia)', value: 'us-east-1' },
+  { label: 'US East (Ohio)', value: 'us-east-2' },
   { label: 'US West (Oregon)', value: 'us-west-2' },
   { label: 'Europe (Ireland)', value: 'eu-west-1' }
 ];
@@ -247,6 +249,33 @@ export default function AgentCoreDeploymentPanel({
   const [mcpServerCode, setMcpServerCode] = useState('');
   const [isLoadingMcpCode, setIsLoadingMcpCode] = useState(false);
   const [mcpCodeError, setMcpCodeError] = useState(null);
+
+  // Dynamic regions state
+  const [availableRegions, setAvailableRegions] = useState(FALLBACK_REGIONS);
+
+  // Fetch supported AgentCore regions on mount
+  useEffect(() => {
+    const fetchRegions = async () => {
+      try {
+        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+        const token = await authService.getToken();
+        const headers = {};
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        const response = await fetch(`${apiBaseUrl}/api/agentcore/regions`, { headers });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.regions && data.regions.length > 0) {
+            setAvailableRegions(data.regions);
+          }
+        }
+      } catch (e) {
+        // Silently fall back to FALLBACK_REGIONS
+      }
+    };
+    fetchRegions();
+  }, []);
 
   // Update agent name when prop changes
   useEffect(() => {
@@ -917,9 +946,9 @@ export default function AgentCoreDeploymentPanel({
               }
             >
               <Select
-                selectedOption={REGIONS.find(r => r.value === config.region)}
+                selectedOption={availableRegions.find(r => r.value === config.region)}
                 onChange={({ detail }) => handleConfigChange('region', detail.selectedOption.value)}
-                options={REGIONS}
+                options={availableRegions}
               />
             </FormField>
           </ColumnLayout>
